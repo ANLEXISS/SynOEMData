@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "observation_id": "camera-observation-h1",
+  "camera_id": "camera-h1",
+  "hardware_id": "synthetic-camera-model",
+  "endpoint": "rtsp://127.0.0.1:8554/synthetic",
+  "firmware": "fixture",
+  "capabilities": ["motion", "video"],
+  "online": true,
+  "last_seen": "2026-10-11T12:00:00Z"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "synora.voice",
+  "version": "0.1.0",
+  "description": "Reserved logical boundary for audio acquisition, speech recognition, dialogue and synthesis; no production implementation is present.",
+  "domain": "voice",
+  "required_capabilities": [],
+  "optional_capabilities": [],
+  "required_dependencies": [],
+  "optional_dependencies": [],
+  "provided_interfaces": [],
+  "consumed_interfaces": [],
+  "configuration_schema": null,
+  "state_ownership": [],
+  "resource_requirements": [],
+  "maturity": "not_implemented",
+  "source_packages": []
+}

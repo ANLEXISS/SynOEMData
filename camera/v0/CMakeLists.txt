@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.20)
+project(synora_camera VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_library(synora_camera_core src/camera.cpp)
+target_include_directories(synora_camera_core PUBLIC include)
+target_compile_options(synora_camera_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+add_executable(synora-camera src/main.cpp)
+target_link_libraries(synora-camera PRIVATE synora_camera_core)
+target_compile_options(synora-camera PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+add_library(synora_camera_mock_core src/mock.cpp)
+target_link_libraries(synora_camera_mock_core PUBLIC synora_camera_core)
+target_include_directories(synora_camera_mock_core PUBLIC include)
+target_compile_options(synora_camera_mock_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+add_executable(synora-camera-mock src/mock_main.cpp)
+target_link_libraries(synora-camera-mock PRIVATE synora_camera_mock_core)
+target_compile_options(synora-camera-mock PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(synora-camera-tests tests/camera_test.cpp)
+  target_link_libraries(synora-camera-tests PRIVATE synora_camera_core)
+  target_compile_options(synora-camera-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  add_test(NAME synora-camera-tests COMMAND synora-camera-tests)
+  add_executable(synora-camera-mock-tests tests/mock_test.cpp)
+  target_link_libraries(synora-camera-mock-tests PRIVATE synora_camera_mock_core)
+  target_compile_options(synora-camera-mock-tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  add_test(NAME synora-camera-mock-tests COMMAND synora-camera-mock-tests)
+endif()

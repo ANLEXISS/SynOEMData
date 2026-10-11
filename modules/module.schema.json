@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synora.module-descriptor/v1",
+  "title": "Synora logical module descriptor V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "description", "domain", "required_capabilities", "optional_capabilities", "required_dependencies", "optional_dependencies", "provided_interfaces", "consumed_interfaces", "configuration_schema", "state_ownership", "resource_requirements", "maturity", "source_packages"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^synora\\.[a-z][a-z0-9.-]*$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "description": {"type": "string", "minLength": 1},
+    "domain": {"type": "string", "minLength": 1},
+    "required_capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "optional_capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "required_dependencies": {"type": "array", "items": {"type": "string", "pattern": "^synora\\.[a-z][a-z0-9.-]*$"}, "uniqueItems": true},
+    "optional_dependencies": {"type": "array", "items": {"type": "string", "pattern": "^synora\\.[a-z][a-z0-9.-]*$"}, "uniqueItems": true},
+    "provided_interfaces": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "consumed_interfaces": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "configuration_schema": {"type": ["string", "null"]},
+    "state_ownership": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "resource_requirements": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "maturity": {"enum": ["implemented", "partial", "not_implemented"]},
+    "source_packages": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  }
+}

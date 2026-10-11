@@ -1,0 +1,142 @@
+{
+  "schema_version": "synora.oem-test-scenario/v1",
+  "scenarios": [
+    {
+      "scenario_id": "camera-unavailable-recovers",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "component",
+      "boundary": "internal/discovery/runtime.Registry",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 11,
+      "devices": [{"id":"camera-h3-1","kind":"camera","capabilities":["vision"],"available":true,"connected":true,"state":{"stream":"ready"}}],
+      "steps": [
+        {"id":"offline","action":"operate","device_id":"camera-h3-1","operation":"observe","capability":"vision","fault":"device_unavailable"},
+        {"id":"recover","action":"recover","device_id":"camera-h3-1","fault":"device_recovery"},
+        {"id":"probe","action":"operate","device_id":"camera-h3-1","operation":"observe","capability":"vision","state_after":{"stream":"ready"}},
+        {"id":"timeout","action":"operate","device_id":"camera-h3-1","operation":"observe","capability":"vision","fault":"timeout"},
+        {"id":"delay","action":"operate","device_id":"camera-h3-1","operation":"observe","capability":"vision","fault":"delayed_response","delay_ms":250}
+      ],
+      "expected":{"trace":["offline:unavailable","recover:recovered","probe:simulated","timeout:timeout","delay:delayed"],"observation_ids":[],"device_state":{"stream":"ready"},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00.25Z"}
+    },
+    {
+      "scenario_id": "vision-valid-observation",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "contract",
+      "boundary": "internal/vision.Runtime and Python worker protocol",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 12,
+      "devices": [{"id":"camera-h3-2","kind":"camera","capabilities":["vision"],"available":true,"connected":true,"state":{}}],
+      "steps": [{"id":"valid-event","action":"observe","device_id":"camera-h3-2","event_id":"vision-h3-event-1","sequence":1,"occurred_at":"2026-10-11T12:00:00Z","payload":{"type":"vision.unknown","payload":{"camera_id":"camera-h3-2","identity":"unknown","persons":1,"scene":{"fall":false,"weapon":false}}}}],
+      "expected":{"trace":["valid-event:observed"],"observation_ids":["vision-h3-event-1"],"device_state":{},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "vision-structured-nested-payload",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "contract",
+      "boundary": "internal/vision.Event.Payload",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 13,
+      "devices": [{"id":"camera-h3-3","kind":"camera","capabilities":["vision"],"available":true,"connected":true,"state":{}}],
+      "steps": [{"id":"nested-event","action":"observe","device_id":"camera-h3-3","event_id":"vision-h3-event-2","sequence":2,"occurred_at":"2026-10-11T12:00:00Z","payload":{"type":"vision.unknown","payload":{"track_id":"track-h3","scene":{"fall":false,"weapon":false,"weapon_confidence":0.0},"extension":{"source":"synthetic"}}}}],
+      "expected":{"trace":["nested-event:observed"],"observation_ids":["vision-h3-event-2"],"device_state":{},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "observations-out-of-order",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "component",
+      "boundary": "internal/cognitivecore event ingestion; arrival order retained",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 14,
+      "devices": [{"id":"sensor-h3-1","kind":"sensor","capabilities":["motion_detection"],"available":true,"connected":true,"state":{}}],
+      "steps": [
+        {"id":"seq-3","action":"observe","device_id":"sensor-h3-1","event_id":"event-seq-3","sequence":3,"occurred_at":"2026-10-11T12:00:03Z","payload":{"movement":true},"fault":"out_of_order_observation"},
+        {"id":"seq-1","action":"observe","device_id":"sensor-h3-1","event_id":"event-seq-1","sequence":1,"occurred_at":"2026-10-11T12:00:01Z","payload":{"movement":false},"fault":"out_of_order_observation"}
+      ],
+      "expected":{"trace":["seq-3:out_of_order_observation","seq-1:out_of_order_observation"],"observation_ids":["event-seq-3","event-seq-1"],"device_state":{},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "duplicate-event-id",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "component",
+      "boundary": "cognitivecore UniversalStore event-id idempotency",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 15,
+      "devices": [{"id":"sensor-h3-2","kind":"sensor","capabilities":["motion_detection"],"available":true,"connected":true,"state":{}}],
+      "steps": [
+        {"id":"first","action":"observe","device_id":"sensor-h3-2","event_id":"duplicate-event","sequence":1,"occurred_at":"2026-10-11T12:00:00Z","payload":{"movement":true}},
+        {"id":"duplicate","action":"observe","device_id":"sensor-h3-2","event_id":"duplicate-event","sequence":1,"occurred_at":"2026-10-11T12:00:00Z","payload":{"movement":true},"fault":"duplicate_observation"}
+      ],
+      "expected":{"trace":["first:observed","duplicate:duplicate_observation"],"observation_ids":["duplicate-event","duplicate-event","duplicate-event"],"device_state":{},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "unsupported-device-operation",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "component",
+      "boundary": "internal/automation.Dispatcher",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 16,
+      "devices": [{"id":"abstract-h3-1","kind":"abstract","capabilities":["notify"],"available":true,"connected":true,"state":{}}],
+      "steps": [{"id":"unlock","action":"operate","device_id":"abstract-h3-1","operation":"unlock","capability":"lock","fault":"unsupported_operation"}],
+      "expected":{"trace":["unlock:unsupported"],"observation_ids":[],"device_state":{},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "abstract-action-dry-run",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "component",
+      "boundary": "internal/automation.Dispatcher",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 17,
+      "devices": [{"id":"actuator-h3-1","kind":"abstract","capabilities":["notify"],"available":true,"connected":true,"state":{"last_action":"none"}}],
+      "steps": [{"id":"notify","action":"operate","device_id":"actuator-h3-1","operation":"notify","capability":"notify","response":"success","state_after":{"last_action":"notify"}}],
+      "expected":{"trace":["notify:simulated"],"observation_ids":[],"device_state":{"last_action":"notify"},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "store-write-interruption-and-retry",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "component",
+      "boundary": "internal/foundation/statestore.PersistenceHooks and outbox retry",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 18,
+      "devices": [{"id":"network-h3-1","kind":"network","capabilities":["state_write","outbox_retry"],"available":true,"connected":true,"state":{"revision":"0"}}],
+      "steps": [
+        {"id":"write-failure","action":"operate","device_id":"network-h3-1","operation":"commit","capability":"state_write","fault":"store_write_failure"},
+        {"id":"adapter-failure","action":"operate","device_id":"network-h3-1","operation":"connect","capability":"state_write","fault":"adapter_error"},
+        {"id":"outbox-retry","action":"operate","device_id":"network-h3-1","operation":"retry","capability":"outbox_retry","fault":"outbox_retry"}
+      ],
+      "expected":{"trace":["write-failure:adapter_error","adapter-failure:adapter_error","outbox-retry:retry_scheduled"],"observation_ids":[],"device_state":{"revision":"0"},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "worker-unavailable-and-recovery",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "component",
+      "boundary": "internal/vision.Runtime worker lifecycle",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 19,
+      "devices": [{"id":"camera-h3-4","kind":"camera","capabilities":["vision"],"available":false,"connected":true,"state":{"backend":"unavailable"}}],
+      "steps": [
+        {"id":"worker-down","action":"operate","device_id":"camera-h3-4","operation":"process","capability":"vision"},
+        {"id":"connection-break","action":"operate","device_id":"camera-h3-4","operation":"process","capability":"vision","fault":"connection_interruption"},
+        {"id":"worker-recover","action":"recover","device_id":"camera-h3-4"},
+        {"id":"worker-ready","action":"operate","device_id":"camera-h3-4","operation":"process","capability":"vision","state_after":{"backend":"ready"}}
+      ],
+      "expected":{"trace":["worker-down:unavailable","connection-break:connection_interrupted","worker-recover:recovered","worker-ready:simulated"],"observation_ids":[],"device_state":{"backend":"ready"},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    },
+    {
+      "scenario_id": "malformed-missing-stale-gap-observations",
+      "schema_version": "synora.oem-test-scenario/v1",
+      "classification": "contract",
+      "boundary": "pkg/contract decoding and temporal characterization",
+      "logical_clock": "2026-10-11T12:00:00Z",
+      "seed": 20,
+      "devices": [{"id":"sensor-h3-3","kind":"sensor","capabilities":["motion_detection"],"available":true,"connected":true,"state":{}}],
+      "steps": [
+        {"id":"malformed","action":"observe","device_id":"sensor-h3-3","event_id":"bad-payload","payload":"not-an-object","fault":"malformed_payload"},
+        {"id":"missing","action":"observe","device_id":"sensor-h3-3","event_id":"missing-event","fault":"missing_observation"},
+        {"id":"stale","action":"observe","device_id":"sensor-h3-3","event_id":"stale-event","sequence":2,"occurred_at":"2026-10-11T11:59:00Z","payload":{"movement":true},"fault":"stale_observation"},
+        {"id":"gap","action":"observe","device_id":"sensor-h3-3","event_id":"gap-event","sequence":5,"occurred_at":"2026-10-11T12:00:00Z","payload":{"movement":false},"fault":"sequence_gap"},
+        {"id":"restart","action":"restart","device_id":"sensor-h3-3","fault":"restart"}
+      ],
+      "expected":{"trace":["malformed:malformed_payload","missing:missing","stale:stale_observation","gap:sequence_gap","restart:restarted"],"observation_ids":[],"device_state":{},"device_available":true,"device_connected":true,"physical_action_executed":false,"cleanup_complete":true,"final_clock":"2026-10-11T12:00:00Z"}
+    }
+  ]
+}

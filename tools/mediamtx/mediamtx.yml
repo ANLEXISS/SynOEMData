@@ -1,0 +1,78 @@
+###############################################
+# General
+
+logLevel: info
+logDestinations: [stdout]
+logStructured: false
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+
+###############################################
+# Authentication
+# Founders Edition compatibility mode: RTSP publish/read is cleartext but
+# intended only for the isolated SynoraNet. Do not expose this listener to LAN/WAN.
+
+authMethod: internal
+
+authInternalUsers:
+- user: any
+  pass:
+  ips: []
+  permissions:
+  - action: publish
+  - action: read
+  - action: playback
+
+- user: any
+  pass:
+  ips: ['127.0.0.1', '::1']
+  permissions:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+###############################################
+# Control API (IMPORTANT FOR SYNORA)
+
+api: yes
+apiAddress: 127.0.0.1:9997
+apiEncryption: false
+apiAllowOrigins: ['http://127.0.0.1', 'http://localhost']
+
+###############################################
+# RTSP SERVER (local SynoraNet compatibility; TLS/auth hardening remains before WAN use)
+
+rtsp: yes
+rtspAddress: 0.0.0.0:8554
+
+# Force TCP only (recommended for home networks)
+rtspTransports: [tcp]
+
+###############################################
+# Disable unnecessary protocols (optional but cleaner)
+
+rtmp: no
+hls: yes
+hlsAddress: 0.0.0.0:8888
+webrtc: yes
+webrtcAddress: 0.0.0.0:8889
+srt: no
+
+###############################################
+# Default path configuration
+
+pathDefaults:
+
+  source: publisher
+
+  # allow camera reconnect
+  overridePublisher: true
+
+###############################################
+# Paths are reconciled by Discovery through the loopback API. Keeping an
+# explicit empty allowlist here prevents arbitrary/guessed camera paths from
+# being accepted during startup before reconciliation completes.
+
+paths: {}

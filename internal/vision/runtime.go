@@ -1,0 +1,631 @@
+package vision
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"synora/internal/facedataset"
+	"synora/internal/idgen"
+	"synora/internal/runtimeconfig"
+	"synora/pkg/contract"
+)
+
+const (
+	SocketPath                 = runtimeconfig.DefaultVisionWorkerSocket
+	connectAttempts            = 5
+	connectDelay               = 100 * time.Millisecond
+	workerContinuityResetEvent = "internal.vision.continuity-reset"
+)
+
+type Runtime struct {
+	manager       WorkerLifecycle
+	socketPath    string
+	workerTimeout time.Duration
+
+	conn net.Conn
+
+	reader *bufio.Reader
+
+	capabilityStatus string
+	capabilityError  string
+	capabilities     ProtocolHelloResponse
+
+	mu sync.Mutex
+}
+
+// WorkerLifecycle is the local lifecycle boundary consumed by Runtime.
+// Implementations may use a host process supervisor or a deterministic fake;
+// the vision protocol client itself does not own process policy.
+type WorkerLifecycle interface {
+	Start(service string) error
+	Snapshot() WorkerSnapshot
+	PublishUnavailable(reason string)
+	WithCamera(cameraID string, run func() error) error
+}
+
+type Request struct {
+	RequestID       string    `json:"request_id"`
+	Operation       string    `json:"operation"`
+	ID              string    `json:"id"`
+	ActivationID    string    `json:"activation_id,omitempty"`
+	ClipIndex       int       `json:"clip_index,omitempty"`
+	SegmentID       string    `json:"segment_id,omitempty"`
+	SegmentIndex    int       `json:"segment_index,omitempty"`
+	IsFinal         bool      `json:"is_final,omitempty"`
+	NodeID          string    `json:"node_id,omitempty"`
+	SequenceKey     string    `json:"sequence_key,omitempty"`
+	TrackID         string    `json:"track_id,omitempty"`
+	EpisodeID       string    `json:"episode_id,omitempty"`
+	Zone            string    `json:"zone,omitempty"`
+	TopologyClass   string    `json:"topology_class,omitempty"`
+	TriggerReason   string    `json:"trigger_reason,omitempty"`
+	StartedAt       time.Time `json:"started_at,omitempty"`
+	EndsAt          time.Time `json:"ends_at,omitempty"`
+	Pipeline        string    `json:"pipeline,omitempty"`
+	ContinuityReset bool      `json:"continuity_reset,omitempty"`
+
+	ClipPath string `json:"clip_path"`
+
+	CameraID string `json:"camera_id"`
+}
+
+type Event struct {
+	Type string `json:"type"`
+
+	Source string `json:"source"`
+
+	SceneID string `json:"scene_id,omitempty"`
+
+	TrackID any `json:"track_id,omitempty"`
+
+	Timestamp float64 `json:"timestamp"`
+
+	Version int `json:"version,omitempty"`
+
+	Payload map[string]any `json:"payload"`
+}
+
+type WorkerResponse struct {
+	RequestID       string                     `json:"request_id"`
+	Events          []Event                    `json:"events"`
+	VisionEvidence  *contract.VisionEvidenceV1 `json:"vision_evidence,omitempty"`
+	ContinuityReset bool                       `json:"continuity_reset,omitempty"`
+
+	Error string `json:"error,omitempty"`
+}
+
+// FaceDatasetRequest is the internal, typed reload boundary. The worker must
+// load and validate the complete immutable version before swapping its FaceDB.
+// Version is the only externally meaningful identifier; Root is supplied by
+// Discovery and is never accepted from an HTTP client.
+type FaceDatasetRequest struct {
+	RequestID string `json:"request_id"`
+	Operation string `json:"operation"`
+	Version   string `json:"version"`
+	Root      string `json:"root"`
+}
+
+type FaceDatasetResponse struct {
+	RequestID        string `json:"request_id"`
+	Version          string `json:"version"`
+	LoadedVersion    string `json:"loaded_version,omitempty"`
+	ActiveRevision   uint64 `json:"active_revision,omitempty"`
+	Dimension        int    `json:"dimension,omitempty"`
+	ModelFingerprint string `json:"model_fingerprint,omitempty"`
+	Fingerprint      string `json:"fingerprint,omitempty"`
+	Error            string `json:"error,omitempty"`
+	FailureCode      string `json:"failure_code,omitempty"`
+}
+
+type FaceEmbeddingRequest struct {
+	RequestID  string `json:"request_id"`
+	Operation  string `json:"operation"`
+	ResidentID string `json:"resident_id"`
+	PhotoID    string `json:"photo_id"`
+	StorageKey string `json:"storage_key"`
+}
+
+type FaceEmbeddingResponse struct {
+	RequestID        string    `json:"request_id"`
+	Embedding        []float32 `json:"embedding"`
+	ModelFingerprint string    `json:"model_fingerprint,omitempty"`
+	Error            string    `json:"error,omitempty"`
+	FailureCode      string    `json:"failure_code,omitempty"`
+}
+
+func (v *Runtime) ReloadFaceDataset(ctx context.Context, version, root string) (facedataset.ReloadResult, error) {
+	if v == nil {
+		return facedataset.ReloadResult{}, fmt.Errorf("vision runtime unavailable")
+	}
+	if strings.TrimSpace(version) == "" || strings.TrimSpace(root) == "" {
+		return facedataset.ReloadResult{}, fmt.Errorf("dataset version and root are required")
+	}
+	select {
+	case <-ctx.Done():
+		return facedataset.ReloadResult{}, ctx.Err()
+	default:
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.connect(); err != nil {
+		return facedataset.ReloadResult{}, err
+	}
+	conn := v.conn
+	if err := conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
+		v.closeConn()
+		return facedataset.ReloadResult{}, err
+	}
+	defer func() { _ = conn.SetDeadline(time.Time{}) }()
+	requestID := idgen.New("face-reload")
+	request := FaceDatasetRequest{RequestID: requestID, Operation: "face_dataset.reload", Version: version, Root: root}
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		v.closeConn()
+		return facedataset.ReloadResult{}, err
+	}
+	var response FaceDatasetResponse
+	if err := json.NewDecoder(v.reader).Decode(&response); err != nil {
+		v.closeConn()
+		return facedataset.ReloadResult{}, err
+	}
+	if response.Error != "" {
+		if response.FailureCode != "" {
+			return facedataset.ReloadResult{}, fmt.Errorf("vision face dataset reload failed code=%s: %s", response.FailureCode, response.Error)
+		}
+		return facedataset.ReloadResult{}, fmt.Errorf("vision face dataset reload failed: %s", response.Error)
+	}
+	if response.RequestID != requestID || response.Version == "" || (response.LoadedVersion != "" && response.LoadedVersion != response.Version) {
+		return facedataset.ReloadResult{}, fmt.Errorf("vision face dataset reload returned no version")
+	}
+	if response.Dimension != 0 && response.Dimension != ArcFaceEmbeddingDimension {
+		return facedataset.ReloadResult{}, fmt.Errorf("%w: dataset dimension=%d want=%d", ErrVisionWorkerDegraded, response.Dimension, ArcFaceEmbeddingDimension)
+	}
+	fingerprint := response.ModelFingerprint
+	if fingerprint == "" {
+		fingerprint = response.Fingerprint
+	}
+	return facedataset.ReloadResult{Version: response.Version, ActiveRevision: response.ActiveRevision, EmbeddingDimension: response.Dimension, ModelFingerprint: fingerprint}, nil
+}
+
+func (v *Runtime) Embed(ctx context.Context, path string, photo contract.FacePhoto) ([]float32, string, error) {
+	if v == nil {
+		return nil, "", fmt.Errorf("vision runtime unavailable")
+	}
+	select {
+	case <-ctx.Done():
+		return nil, "", ctx.Err()
+	default:
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.connect(); err != nil {
+		return nil, "", err
+	}
+	conn := v.conn
+	if err := conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
+		v.closeConn()
+		return nil, "", err
+	}
+	defer func() { _ = conn.SetDeadline(time.Time{}) }()
+	_ = path // The worker resolves storage_key under its canonical root.
+	requestID := idgen.New("face-embed")
+	request := FaceEmbeddingRequest{RequestID: requestID, Operation: "face_dataset.embed", ResidentID: photo.ResidentID, PhotoID: photo.ID, StorageKey: photo.StorageKey}
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		v.closeConn()
+		return nil, "", err
+	}
+	var response FaceEmbeddingResponse
+	if err := json.NewDecoder(v.reader).Decode(&response); err != nil {
+		v.closeConn()
+		return nil, "", err
+	}
+	if response.Error != "" {
+		if response.FailureCode != "" {
+			return nil, "", fmt.Errorf("vision face embedding failed code=%s: %s", response.FailureCode, response.Error)
+		}
+		return nil, "", fmt.Errorf("vision face embedding failed: %s", response.Error)
+	}
+	if response.RequestID != requestID {
+		return nil, "", fmt.Errorf("vision face embedding response correlation mismatch")
+	}
+	if len(response.Embedding) != ArcFaceEmbeddingDimension {
+		return nil, "", fmt.Errorf("%w: embedding dimension=%d want=%d", ErrVisionWorkerDegraded, len(response.Embedding), ArcFaceEmbeddingDimension)
+	}
+	return append([]float32(nil), response.Embedding...), response.ModelFingerprint, nil
+}
+
+func NewRuntime() *Runtime {
+	return NewRuntimeWithManager(
+		NewWorkerManager(
+			nil,
+			WorkerManagerConfig{},
+		),
+	)
+}
+
+func NewRuntimeWithManager(
+	manager WorkerLifecycle,
+) *Runtime {
+	return NewRuntimeWithManagerAndSocketTimeout(manager, SocketPath, WorkerTimeout)
+}
+
+func NewRuntimeWithManagerAndSocket(
+	manager WorkerLifecycle,
+	socketPath string,
+) *Runtime {
+	return NewRuntimeWithManagerAndSocketTimeout(manager, socketPath, WorkerTimeout)
+}
+
+func NewRuntimeWithManagerAndSocketTimeout(
+	manager WorkerLifecycle,
+	socketPath string,
+	workerTimeout time.Duration,
+) *Runtime {
+	if strings.TrimSpace(socketPath) == "" {
+		socketPath = SocketPath
+	}
+	if workerTimeout <= 0 {
+		workerTimeout = WorkerTimeout
+	}
+	return &Runtime{
+		manager:       manager,
+		socketPath:    socketPath,
+		workerTimeout: workerTimeout,
+	}
+}
+
+func (v *Runtime) Start() error {
+	if err := v.manager.Start(
+		"discovery",
+	); err != nil {
+		return err
+	}
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if err := v.connect(); err != nil {
+		v.manager.PublishUnavailable(err.Error())
+		return err
+	}
+	return nil
+}
+
+func (v *Runtime) connect() error {
+	if v.conn != nil {
+		return nil
+	}
+
+	var conn net.Conn
+	var err error
+
+	for i := 0; i < connectAttempts; i++ {
+
+		conn, err = net.Dial(
+			"unix",
+			v.socketPath,
+		)
+
+		if err == nil {
+			break
+		}
+
+		time.Sleep(connectDelay)
+	}
+
+	if err != nil {
+
+		return fmt.Errorf(
+			"failed to connect vision worker socket: %w",
+			err,
+		)
+	}
+
+	v.conn = conn
+
+	v.reader = bufio.NewReader(
+		conn,
+	)
+	if err := v.negotiate(); err != nil {
+		if v.capabilityStatus == "" {
+			v.capabilityStatus = "degraded"
+			v.capabilityError = err.Error()
+		}
+		v.closeConn()
+		return err
+	}
+
+	return nil
+}
+
+func (v *Runtime) negotiate() error {
+	requestID := idgen.New("vision-hello")
+	if err := v.conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
+		return fmt.Errorf("set vision hello deadline: %w", err)
+	}
+	defer func() { _ = v.conn.SetDeadline(time.Time{}) }()
+	request := ProtocolHelloRequest{
+		RequestID:       requestID,
+		Operation:       VisionProtocolHello,
+		ProtocolVersion: VisionProtocolVersion,
+	}
+	if err := json.NewEncoder(v.conn).Encode(request); err != nil {
+		return fmt.Errorf("send vision protocol hello: %w", err)
+	}
+	var response ProtocolHelloResponse
+	if err := json.NewDecoder(v.reader).Decode(&response); err != nil {
+		return fmt.Errorf("receive vision protocol hello: %w", err)
+	}
+	if err := validateProtocolHello(requestID, response); err != nil {
+		v.capabilityStatus = "degraded"
+		v.capabilityError = err.Error()
+		return err
+	}
+	v.capabilities = response
+	v.capabilityStatus = response.Status
+	v.capabilityError = response.degradedReason()
+	return nil
+}
+
+func (v *Runtime) Snapshot() WorkerSnapshot {
+	if v == nil || v.manager == nil {
+		return WorkerSnapshot{Status: WorkerStatusStopped}
+	}
+	snapshot := v.manager.Snapshot()
+	v.mu.Lock()
+	snapshot.ProtocolVersion = v.capabilities.ProtocolVersion
+	snapshot.Backend = v.capabilities.Backend
+	snapshot.CapabilityStatus = v.capabilityStatus
+	snapshot.CapabilityError = v.capabilityError
+	v.mu.Unlock()
+	return snapshot
+}
+
+func (v *Runtime) PublishUnavailable(reason string) {
+	if v == nil || v.manager == nil {
+		return
+	}
+	v.manager.PublishUnavailable(reason)
+}
+
+// Close releases the persistent worker connection. Worker process ownership
+// remains with WorkerManager so callers can stop it explicitly and observe
+// the bounded shutdown result.
+func (v *Runtime) Close() error {
+	if v == nil {
+		return nil
+	}
+	v.mu.Lock()
+	v.closeConn()
+	v.mu.Unlock()
+	return nil
+}
+
+func (v *Runtime) Process(
+	job *ClipJob,
+) (*WorkerResponse, error) {
+	returnValue := &WorkerResponse{}
+
+	err := v.manager.WithCamera(
+		job.CameraID,
+		func() error {
+			resp, err := v.processLocked(
+				job,
+			)
+
+			if err != nil {
+				return err
+			}
+
+			*returnValue = *resp
+
+			return nil
+		},
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return returnValue, nil
+}
+
+// ProcessSegment sends one already-closed segment through the same worker
+// protocol as clip-v1. Episode ordering, idempotency and final closure stay in
+// EpisodeRuntimeV1; this method is only the camera-independent worker bridge.
+func (v *Runtime) ProcessSegment(ctx context.Context, segment contract.VisionSegmentReadyV1, mediaPath string) ([]Event, error) {
+	return v.processSegment(ctx, segment, mediaPath, false)
+}
+
+func (v *Runtime) processSegment(ctx context.Context, segment contract.VisionSegmentReadyV1, mediaPath string, continuityReset bool) ([]Event, error) {
+	if v == nil {
+		return nil, fmt.Errorf("vision runtime unavailable")
+	}
+	if err := segment.Validate(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(mediaPath) == "" {
+		return nil, fmt.Errorf("segment media path is required")
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.connect(); err != nil {
+		return nil, err
+	}
+	deadline := time.Now().UTC().Add(v.workerTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err := v.conn.SetDeadline(deadline); err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	defer func() { _ = v.conn.SetDeadline(time.Time{}) }()
+	pipeline := "clip-v1"
+	if os.Getenv("SYNORA_EDGE_VISION") == "1" {
+		pipeline = "edge-v1"
+	}
+	req := Request{
+		RequestID: segment.SegmentID, Operation: VisionSegmentProcess, ID: segment.SegmentID,
+		SegmentID: segment.SegmentID, SegmentIndex: segment.SegmentIndex, IsFinal: segment.IsFinal,
+		NodeID: segment.NodeID, EpisodeID: segment.EpisodeID, Zone: segment.TopologyClass,
+		TopologyClass: segment.TopologyClass, TriggerReason: segment.Trigger,
+		StartedAt: segment.StartedAt, EndsAt: segment.EndedAt, Pipeline: pipeline,
+		ContinuityReset: continuityReset || segmentContinuityReset(ctx),
+		ClipPath:        mediaPath, CameraID: segment.CameraID,
+	}
+	if err := json.NewEncoder(v.conn).Encode(req); err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	var raw json.RawMessage
+	if err := json.NewDecoder(v.reader).Decode(&raw); err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	resp, err := decodeWorkerResponse(raw)
+	if err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	if resp.RequestID != req.RequestID {
+		v.closeConn()
+		return nil, fmt.Errorf("%w: response correlation mismatch", ErrVisionMalformedResponse)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("vision worker error: %s", resp.Error)
+	}
+	if resp.ContinuityReset {
+		resp.Events = append(resp.Events, Event{Type: workerContinuityResetEvent, Payload: map[string]any{}})
+	}
+	return resp.Events, nil
+}
+
+func (v *Runtime) ReleaseEpisode(episodeID string) {
+	if v == nil || strings.TrimSpace(episodeID) == "" {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err := v.connect(); err != nil {
+		return
+	}
+	_ = v.conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout))
+	defer func() { _ = v.conn.SetDeadline(time.Time{}) }()
+	requestID := "episode-release-" + episodeID
+	request := map[string]any{"request_id": requestID, "operation": VisionEpisodeRelease, "episode_id": episodeID}
+	if err := json.NewEncoder(v.conn).Encode(request); err != nil {
+		v.closeConn()
+		return
+	}
+	var response map[string]any
+	if err := json.NewDecoder(v.reader).Decode(&response); err != nil {
+		v.closeConn()
+	}
+}
+
+func (v *Runtime) processLocked(
+	job *ClipJob,
+) (*WorkerResponse, error) {
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if err := v.connect(); err != nil {
+		return nil, err
+	}
+	if v.capabilityStatus == "degraded" {
+		return nil, fmt.Errorf("%w: %s", ErrVisionWorkerDegraded, v.capabilityError)
+	}
+	conn := v.conn
+	if err := conn.SetDeadline(time.Now().UTC().Add(v.workerTimeout)); err != nil {
+		v.closeConn()
+		return nil, fmt.Errorf("set vision worker deadline: %w", err)
+	}
+	defer func() { _ = conn.SetDeadline(time.Time{}) }()
+
+	req := Request{
+		RequestID:     job.ID,
+		Operation:     VisionClipProcess,
+		ID:            job.ID,
+		ActivationID:  job.ActivationID,
+		ClipIndex:     job.ClipIndex,
+		NodeID:        job.NodeID,
+		SequenceKey:   job.SequenceKey,
+		TrackID:       job.TrackID,
+		EpisodeID:     job.EpisodeID,
+		Zone:          job.Zone,
+		TopologyClass: authoritativeTopologyClass(job),
+		TriggerReason: job.TriggerReason,
+		StartedAt:     job.StartedAt,
+		EndsAt:        job.EndsAt,
+		Pipeline:      job.Pipeline,
+
+		ClipPath: job.Path,
+
+		CameraID: job.CameraID,
+	}
+
+	err := json.NewEncoder(
+		v.conn,
+	).Encode(req)
+
+	if err != nil {
+		v.closeConn()
+
+		return nil, err
+	}
+
+	var raw json.RawMessage
+	err = json.NewDecoder(v.reader).Decode(&raw)
+
+	if err != nil {
+		v.closeConn()
+
+		return nil, err
+	}
+
+	resp, err := decodeWorkerResponse(raw)
+	if err != nil {
+		v.closeConn()
+		return nil, err
+	}
+	if resp.RequestID != req.RequestID {
+		v.closeConn()
+		return nil, fmt.Errorf("%w: response correlation mismatch", ErrVisionMalformedResponse)
+	}
+
+	if resp.Error != "" {
+
+		return nil, fmt.Errorf(
+			"vision worker error: %s",
+			resp.Error,
+		)
+	}
+
+	return &resp, nil
+}
+
+func (v *Runtime) closeConn() {
+	if v.conn != nil {
+		_ = v.conn.Close()
+	}
+	if v.capabilityStatus == "normal" {
+		v.capabilityStatus = "degraded"
+		v.capabilityError = "worker connection unavailable"
+	}
+
+	v.conn = nil
+	v.reader = nil
+}

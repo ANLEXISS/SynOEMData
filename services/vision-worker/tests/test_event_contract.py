@@ -1,0 +1,314 @@
+import os
+import json
+import logging
+import sys
+import tempfile
+import unittest
+
+import numpy as np
+
+
+ROOT = os.path.dirname(os.path.dirname(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from core.events import ALLOWED_EVENT_TYPES, EventBuilder
+from core.observability import DebugStore, PipelineMetrics, PipelineTrace
+from core.pipeline import VisionPipeline
+from modules.face.FaceRecognizer import FaceRecognizer
+from worker import build_dry_run_event
+
+
+class DummyMetrics:
+
+    def incr(self, *args, **kwargs):
+        return None
+
+    def identity(self, *args, **kwargs):
+        return None
+
+    def error(self, *args, **kwargs):
+        return None
+
+    def timing(self, *args, **kwargs):
+        return None
+
+
+class DummyDebugStore:
+
+    def append_timeline(self, entry):
+        return None
+
+
+class MockRecognizer:
+
+    match_threshold = 0.90
+    uncertain_threshold = 0.65
+
+    def __init__(self, status, identity, score):
+        self.status = status
+        self.identity = identity
+        self.score = score
+        self.identify_calls = 0
+        self.dataset_version = "v-1"
+
+    def embed(self, face):
+        return np.ones(512, dtype=np.float32)
+
+    def identify_embedding(self, embedding):
+        self.identify_calls += 1
+        return self.status, self.identity, self.score
+
+    def active_dataset(self):
+        return {"version": self.dataset_version}
+
+
+class MockModelRunner:
+
+    backend = "mock-rknn"
+
+    def infer(self, input_tensor):
+        return [np.ones((1, 512), dtype=np.float32)]
+
+
+def make_pipeline(status="match", identity="alexis", score=0.95, faces=True):
+    pipeline = VisionPipeline.__new__(VisionPipeline)
+    pipeline.face_recognizer = MockRecognizer(status, identity, score)
+    pipeline.events = EventBuilder({
+        "camera_id": "cam_01",
+        "device_id": "device_01",
+        "node_id": "node_01",
+        "clip_id": "clip_01",
+        "clip_path": "/tmp/clip_01.mp4",
+    })
+    pipeline.active_tracks_seen = {7}
+    pipeline.track_faces = {}
+    if faces:
+        pipeline.track_faces[7] = [
+            (
+                1.0,
+                np.zeros((112, 112, 3), dtype=np.uint8),
+                "trace-1",
+            )
+        ]
+    pipeline.track_identity_memory = {}
+    pipeline.track_recognition_buffers = {}
+    pipeline.track_last_arcface = {}
+    pipeline.frame_id = 1
+    pipeline.metrics = DummyMetrics()
+    pipeline.debug_store = DummyDebugStore()
+    pipeline.debug_step = lambda *args, **kwargs: None
+    pipeline.save_debug_recognition = lambda *args, **kwargs: None
+    return pipeline
+
+
+class EventContractTests(unittest.TestCase):
+
+    def assert_contract_event(self, event, event_type):
+        self.assertIn(event["type"], ALLOWED_EVENT_TYPES)
+        self.assertEqual(event["type"], event_type)
+        self.assertEqual(event["camera_id"], "cam_01")
+        self.assertEqual(event["device_id"], "device_01")
+        self.assertEqual(event["clip_id"], "clip_01")
+        self.assertEqual(event["payload"]["camera_id"], "cam_01")
+        self.assertEqual(event["payload"]["device_id"], "device_01")
+        self.assertEqual(event["payload"]["node_id"], "node_01")
+        self.assertEqual(event["payload"]["clip_id"], "clip_01")
+        self.assertEqual(event["payload"]["clip_path"], "/tmp/clip_01.mp4")
+        self.assertIn("timestamp", event)
+        self.assertIn("timestamp", event["payload"])
+        self.assertIn("confidence", event["payload"])
+
+    def test_builder_identity_unknown_uncertain_contract_shape(self):
+        builder = EventBuilder({
+            "camera_id": "cam_01",
+            "device_id": "device_01",
+            "node_id": "node_01",
+            "clip_id": "clip_01",
+            "clip_path": "/tmp/clip_01.mp4",
+        })
+
+        events = [
+            builder.identity("cam_01", "scene_01", 1, "alexis", 0.95, 1),
+            builder.unknown("cam_01", "scene_01", 2, 1),
+            builder.uncertain("cam_01", "scene_01", 3, "alexis", 0.42, 1),
+        ]
+
+        self.assert_contract_event(events[0], "vision.identity")
+        self.assert_contract_event(events[1], "vision.unknown")
+        self.assert_contract_event(events[2], "vision.uncertain")
+        self.assertEqual(events[0]["identity"], "alexis")
+        self.assertEqual(events[1]["identity"], "unknown")
+        self.assertEqual(events[2]["identity"], "uncertain")
+
+        encoded = json.dumps(events[0])
+        for forbidden in ("embedding", "crop", "landmark"):
+            self.assertNotIn(forbidden, encoded)
+
+    def test_builder_scene_event_contract_shape(self):
+        builder = EventBuilder({
+            "camera_id": "cam_01",
+            "device_id": "device_01",
+            "node_id": "node_01",
+            "clip_id": "clip_01",
+            "clip_path": "/tmp/clip_01.mp4",
+        })
+
+        events = [
+            builder.motion("cam_01", "scene_01"),
+            builder.weapon("cam_01", "scene_01", 4, 0.77, "firearm"),
+            builder.fall("cam_01", "scene_01", 5, 0.88),
+            builder.tamper("cam_01", "scene_01"),
+        ]
+
+        self.assert_contract_event(events[0], "vision.motion")
+        self.assert_contract_event(events[1], "vision.weapon")
+        self.assert_contract_event(events[2], "vision.fall")
+        self.assert_contract_event(events[3], "vision.tamper")
+        self.assertEqual(events[1]["payload"]["weapon_type"], "firearm")
+        self.assertTrue(events[2]["payload"]["fall"])
+        self.assertTrue(events[3]["payload"]["tamper"])
+
+    def test_dry_run_propagates_clip_id(self):
+        event = build_dry_run_event(
+            clip_path="/tmp/clip_01.mp4",
+            camera_id="cam_01",
+            clip_id="clip_01",
+            node_id="node_01",
+            device_id="device_01",
+            event_kind="unknown",
+        )
+
+        self.assert_contract_event(event, "vision.unknown")
+        self.assertEqual(event["track_id"], "dry-run-track")
+        self.assertEqual(event["payload"]["track_id"], "dry-run-track")
+
+    def test_dry_run_preserves_clip_correlation_metadata(self):
+        event = build_dry_run_event(
+            clip_path="/tmp/clip_02.mp4",
+            camera_id="cam_02",
+            clip_id="clip_02",
+            node_id="node_02",
+            device_id="device_02",
+            activation_id="activation_02",
+            sequence_key="sequence_02",
+            clip_index=3,
+            event_kind="unknown",
+        )
+
+        self.assertEqual(event["activation_id"], "activation_02")
+        self.assertEqual(event["sequence_key"], "sequence_02")
+        self.assertEqual(event["clip_index"], 3)
+        self.assertEqual(event["payload"]["activation_id"], "activation_02")
+        self.assertEqual(event["payload"]["sequence_key"], "sequence_02")
+        self.assertEqual(event["payload"]["clip_index"], 3)
+
+    def test_pipeline_run_recognition_identity_with_mock_runner_path(self):
+        pipeline = make_pipeline("match", "alexis", 0.95, faces=True)
+
+        events = pipeline.run_recognition("cam_01", scene_id="clip_01")
+
+        self.assertEqual(len(events), 1)
+        self.assert_contract_event(events[0], "vision.identity")
+        self.assertEqual(events[0]["payload"]["identity"], "alexis")
+
+    def test_pipeline_run_recognition_uncertain(self):
+        pipeline = make_pipeline("uncertain", "alexis", 0.30, faces=True)
+
+        events = pipeline.run_recognition("cam_01", scene_id="clip_01")
+
+        self.assertEqual(len(events), 1)
+        self.assert_contract_event(events[0], "vision.uncertain")
+        self.assertEqual(events[0]["payload"]["best_match"], "alexis")
+
+    def test_pipeline_run_recognition_unknown_without_face(self):
+        pipeline = make_pipeline("unknown", None, 0.0, faces=False)
+
+        events = pipeline.run_recognition("cam_01", scene_id="clip_01")
+
+        self.assertEqual(len(events), 1)
+        self.assert_contract_event(events[0], "vision.unknown")
+
+    def test_face_recognizer_embed_uses_mock_model_runner(self):
+        recognizer = FaceRecognizer.__new__(FaceRecognizer)
+        recognizer.runner = MockModelRunner()
+        recognizer.embedding_dim = 512
+
+        face = np.zeros((112, 112, 3), dtype=np.uint8)
+        embedding = recognizer._embed_raw(face)
+
+        self.assertEqual(embedding.shape, (512,))
+        self.assertTrue(np.all(embedding == 1.0))
+
+    def test_missing_arcface_is_unavailable_without_raising(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recognizer = FaceRecognizer(
+                model_path=os.path.join(directory, "missing.rknn"),
+                faces_dir=os.path.join(directory, "faces"),
+                debug_dir=os.path.join(directory, "debug"),
+            )
+
+            self.assertFalse(recognizer.available)
+            self.assertEqual(recognizer.capability()["status"], "unavailable")
+            self.assertIsNone(recognizer.embed(np.zeros((112, 112, 3), dtype=np.uint8)))
+            self.assertEqual(recognizer.match_threshold, 0.90)
+            self.assertEqual(recognizer.uncertain_threshold, 0.65)
+
+    def test_identity_cache_expires_after_ten_seconds(self):
+        self.assertEqual(VisionPipeline.FACE_MIN_SIZE, 80)
+        pipeline = make_pipeline("match", "alexis", 0.95, faces=True)
+        pipeline.run_recognition("cam_01", scene_id="clip_01")
+        pipeline.frame_id = 2
+        self.assertFalse(pipeline.should_run_arcface(7))
+        pipeline.track_identity_memory[7]["cached_at"] -= 10.001
+        self.assertTrue(pipeline.should_run_arcface(7))
+
+    def test_uncertain_identity_is_not_promoted_by_cache(self):
+        pipeline = make_pipeline("uncertain", "alexis", 0.46, faces=True)
+        first = pipeline.run_recognition("cam_01", scene_id="clip_01")
+        pipeline.frame_id = 2
+        second = pipeline.run_recognition("cam_01", scene_id="clip_01")
+        self.assertEqual(first[0]["type"], "vision.uncertain")
+        self.assertEqual(second[0]["type"], "vision.uncertain")
+        self.assertNotEqual(second[0]["type"], "vision.identity")
+
+    def test_pipeline_metrics_snapshot_never_contains_identity_map(self):
+        payload = PipelineMetrics().snapshot()
+        self.assertNotIn("identities", payload)
+
+    def test_pipeline_trace_redacts_face_ids_coordinates_names_and_paths(self):
+        forbidden = ("resident-private", "local-track-72", "/private/gallery", "bbox", "embedding")
+        with tempfile.TemporaryDirectory() as root:
+            store = DebugStore(root, enabled=True)
+            trace = PipelineTrace("camera-test", "local-track-72", store, trace_id="trace-test")
+            with self.assertLogs("synora.vision.observability", level=logging.INFO) as captured:
+                with trace.step("face", details={
+                    "local_track_id": forbidden[1], "identity": forbidden[0],
+                    "path": forbidden[2], "bbox": [1, 2, 3, 4], "embedding": [0.1],
+                }):
+                    pass
+            with open(os.path.join(root, "timeline", "timeline.jsonl"), encoding="utf-8") as timeline:
+                payload = timeline.read()
+            for value in forbidden:
+                self.assertNotIn(value, payload)
+                self.assertNotIn(value, " ".join(captured.output))
+            self.assertIn('"frame_id": "redacted"', payload)
+
+    def test_disabled_debug_store_does_not_write_trace_timeline(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = DebugStore(root, enabled=False)
+            store.append_timeline({"frame_id": "redacted"})
+            self.assertFalse(os.path.exists(os.path.join(root, "timeline", "timeline.jsonl")))
+
+    def test_dataset_swap_invalidates_track_identity_cache(self):
+        pipeline = make_pipeline("match", "alexis", 0.95, faces=True)
+        pipeline.run_recognition("cam_01", scene_id="clip_01")
+        self.assertEqual(len(pipeline.track_recognition_buffers[7]), 1)
+        pipeline.face_recognizer.dataset_version = "v-2"
+        pipeline.frame_id = 2
+        pipeline.run_recognition("cam_01", scene_id="clip_01")
+        self.assertEqual(pipeline.face_recognizer.identify_calls, 2)
+        self.assertEqual(len(pipeline.track_recognition_buffers[7]), 1)
+
+if __name__ == "__main__":
+    unittest.main()

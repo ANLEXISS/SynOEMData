@@ -1,0 +1,26 @@
+[Unit]
+Description=Synora Runtime Manager
+After=synora-bus.service
+Requires=synora-bus.service
+
+[Service]
+Type=simple
+
+User=root
+Group=root
+
+ExecStart=/opt/synora/bin/synora-runtime-manager
+
+Restart=always
+RestartSec=2
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0077
+
+NoNewPrivileges=true
+
+LimitNOFILE=4096
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

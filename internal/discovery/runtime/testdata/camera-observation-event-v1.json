@@ -1,0 +1,19 @@
+{
+  "id": "camera-observation-h3",
+  "type": "discovery.camera.observed",
+  "kind": "event",
+  "source": "discovery",
+  "target": "core",
+  "timestamp": "2026-10-11T12:00:00Z",
+  "payload": {
+    "schema_version": 1,
+    "observation_id": "camera-observation-h3",
+    "camera_id": "camera-h3",
+    "hardware_id": "synthetic-hardware",
+    "endpoint": "rtsp://127.0.0.1/synthetic",
+    "firmware": "fixture",
+    "capabilities": ["motion_detection", "vision"],
+    "online": true,
+    "last_seen": "2026-10-11T12:00:00Z"
+  }
+}

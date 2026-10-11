@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+
+name="synora-camera"
+description="Synora Camera V0 daemon"
+command="/usr/bin/synora-camera"
+command_args="--data-dir /var/lib/synora-camera"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+supervisor="supervise-daemon"
+respawn_delay=2

@@ -1,0 +1,13 @@
+{
+  "schema_version": "synora.module-registry/v1",
+  "schema": "module.schema.json",
+  "modules": [
+    "foundation.json",
+    "intelligence.json",
+    "vision.json",
+    "voice.json",
+    "automation.json",
+    "integration.json",
+    "platform.json"
+  ]
+}

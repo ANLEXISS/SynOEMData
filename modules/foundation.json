@@ -1,0 +1,47 @@
+{
+  "id": "synora.foundation",
+  "version": "0.1.0",
+  "description": "Shared contracts, authoritative typed state storage, event transport, configuration and persistence primitives.",
+  "domain": "foundation",
+  "required_capabilities": [],
+  "optional_capabilities": [],
+  "required_dependencies": [],
+  "optional_dependencies": [],
+  "provided_interfaces": [
+    "synora.contracts/v1",
+    "synora.persistent-contracts/v1",
+    "synora.bus-json/v1",
+    "synora.universal-store/v1",
+    "synora.state-store/v1",
+    "synora.local-persistence/v1"
+  ],
+  "consumed_interfaces": [],
+  "configuration_schema": null,
+  "state_ownership": [
+    "Universal Store state, journal, replay, snapshots, decisions, action outbox and resident gallery persistence",
+    "local durable state file replacement primitive",
+    "message bus transient queues",
+    "configuration and persistence primitives"
+  ],
+  "resource_requirements": [
+    "filesystem for configured persistence"
+  ],
+  "maturity": "implemented",
+  "source_packages": [
+    "pkg/contract",
+    "pkg/contracts",
+    "internal/bus",
+    "internal/configfile",
+    "internal/clipstore",
+    "internal/idgen",
+    "internal/outbox",
+    "internal/recovery",
+    "internal/resourcebudget",
+    "internal/retention",
+    "internal/runtimeconfig",
+    "internal/state",
+    "internal/foundation/persistence",
+    "internal/foundation/contracts",
+    "internal/foundation/statestore"
+  ]
+}

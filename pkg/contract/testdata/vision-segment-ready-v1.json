@@ -1,0 +1,15 @@
+{
+  "schema_version": "synora.vision.segment-ready/v1",
+  "camera_id": "cam-entry",
+  "node_id": "entry",
+  "episode_id": "episode-1",
+  "segment_id": "segment-eb883de3986394275be775c5",
+  "segment_index": 0,
+  "started_at": "2026-01-01T00:00:00Z",
+  "ended_at": "2026-01-01T00:00:01Z",
+  "is_final": false,
+  "topology_class": "protected_interior",
+  "trigger": "motion",
+  "media_ref": "local://segments/segment.mp4",
+  "content_sha256": "139e7a317233dea4215e06f105db9d56f7ae3964ffb6ce7ace187dd162a2dccf"
+}

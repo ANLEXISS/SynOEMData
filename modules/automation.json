@@ -1,0 +1,21 @@
+{
+  "id": "synora.automation",
+  "version": "0.1.0",
+  "description": "Deterministic abstract action validation and controlled dry-run dispatch; physical device execution is not implemented.",
+  "domain": "automation",
+  "required_capabilities": [],
+  "optional_capabilities": [],
+  "required_dependencies": [],
+  "optional_dependencies": [],
+  "provided_interfaces": [
+    "synora.automation.action-dispatch/v1"
+  ],
+  "consumed_interfaces": [],
+  "configuration_schema": null,
+  "state_ownership": [],
+  "resource_requirements": [],
+  "maturity": "partial",
+  "source_packages": [
+    "internal/automation"
+  ]
+}

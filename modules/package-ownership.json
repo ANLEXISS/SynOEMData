@@ -1,0 +1,190 @@
+{
+  "schema_version": "synora.package-ownership/v1",
+  "owners": [
+    {
+      "prefix": "synora/internal/automation",
+      "module": "synora.automation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/pkg/",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/bus",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/intelligence/mlp",
+      "module": "synora.intelligence",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/cognitivecore",
+      "module": "synora.intelligence",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/configfile",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/idgen",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/outbox",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/recovery",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/resourcebudget",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/retention",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/runtimeconfig",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/state",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/clipstore",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/intelligence/topology",
+      "module": "synora.intelligence",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/vision",
+      "module": "synora.vision",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/modelmanifest",
+      "module": "synora.vision",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/facedataset",
+      "module": "synora.vision",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/facestore",
+      "module": "synora.vision",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/facegallery",
+      "module": "synora.vision",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/visionsuite",
+      "module": "synora.vision",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/discovery/network",
+      "module": "synora.platform",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/manager",
+      "module": "synora.platform",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/boothealth",
+      "module": "synora.platform",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/version",
+      "module": "synora.platform",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/discovery",
+      "module": "synora.integration",
+      "recursive": false
+    },
+    {
+      "prefix": "synora/internal/discovery/ingress",
+      "module": "synora.integration",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/discovery/runtime",
+      "module": "synora.integration",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/device",
+      "module": "synora.integration",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/connectivity",
+      "module": "synora.integration",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/security",
+      "module": "synora.integration",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/systemstate",
+      "module": "synora.integration",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/mediamtx",
+      "module": "synora.platform",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/foundationv1",
+      "module": "synora.integration",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/foundation/persistence",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/foundation/contracts",
+      "module": "synora.foundation",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/foundation/statestore",
+      "module": "synora.foundation",
+      "recursive": true
+    }
+  ]
+}

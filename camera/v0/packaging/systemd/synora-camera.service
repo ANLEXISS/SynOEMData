@@ -1,0 +1,20 @@
+[Unit]
+Description=Synora Camera V0 daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=synora-camera
+Group=synora-camera
+ExecStart=/usr/bin/synora-camera --data-dir /var/lib/synora-camera
+Restart=always
+RestartSec=2
+MemoryMax=192M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/synora-camera
+
+[Install]
+WantedBy=multi-user.target

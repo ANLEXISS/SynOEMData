@@ -1,0 +1,17 @@
+{
+  "id": "synora.vision",
+  "version": "0.1.0",
+  "description": "Video worker orchestration, clip and segment processing contracts, and current Python vision worker integration.",
+  "domain": "perception",
+  "required_capabilities": ["synora.contracts/v1"],
+  "optional_capabilities": ["media.video_input", "inference.rknn"],
+  "required_dependencies": ["synora.foundation"],
+  "optional_dependencies": ["synora.platform"],
+  "provided_interfaces": ["synora.vision.evidence/v1", "synora.vision.worker-protocol/v1"],
+  "consumed_interfaces": ["synora.contracts/v1", "media.local-clip/v1"],
+  "configuration_schema": null,
+  "state_ownership": ["vision worker lifecycle and bounded clip queue", "worker-local model runtime state", "segment episode continuity state"],
+  "resource_requirements": ["Python 3 worker", "local media and model files", "RKNN Lite only when that backend is selected"],
+  "maturity": "partial",
+  "source_packages": ["internal/vision", "internal/modelmanifest", "internal/facedataset", "internal/facestore", "internal/facegallery", "services/vision-worker"]
+}

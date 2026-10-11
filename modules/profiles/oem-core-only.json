@@ -1,0 +1,27 @@
+{
+  "schema_version": "synora.oem-composition/v1",
+  "id": "synora.oem.core-only",
+  "description": "Reduced local composition for event processing and authoritative Core state.",
+  "required_modules": [
+    "synora.foundation",
+    "synora.intelligence"
+  ],
+  "optional_modules": [],
+  "excluded_modules": [
+    "synora.automation",
+    "synora.integration",
+    "synora.platform",
+    "synora.vision",
+    "synora.voice"
+  ],
+  "runtime_entrypoints": [
+    "cmd/synora-bus",
+    "cmd/synora-core"
+  ],
+  "limitations": [
+    "No external API or authenticated media ingress",
+    "No Vision worker or camera observation integration",
+    "No action dispatch boundary beyond Cognitive Core's deterministic dry-run gate",
+    "No host network, service supervision, or hardware adapter"
+  ]
+}

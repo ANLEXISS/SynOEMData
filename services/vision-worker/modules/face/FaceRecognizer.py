@@ -1,0 +1,758 @@
+import cv2
+import numpy as np
+import os
+import logging
+import time
+import threading
+import hashlib
+
+from core.model_runner import create_model_runner, ModelUnavailableError, model_status
+from core.model_specs import ARCFACE_EMBEDDING
+
+
+log = logging.getLogger(
+    "synora.vision.facerec"
+)
+
+
+class FaceRecognizer:
+
+    def __init__(
+        self,
+        model_path="/var/lib/synora/models/arcface_w600k_r50.rknn",
+        faces_dir="/opt/synora/services/vision-worker/data/faces",
+        match_threshold=0.90,
+        uncertain_threshold=0.65,
+        debug_dir="",
+        runner_factory=None,
+    ):
+
+        log.info(
+            "FACE RECOGNIZER INIT"
+        )
+
+        self.match_threshold = (
+            match_threshold
+        )
+
+        self.uncertain_threshold = (
+            uncertain_threshold
+        )
+
+        self.faces_dir = faces_dir
+
+        self.debug_dir = debug_dir
+
+        self.model_path = model_path
+        self.available = False
+        self.error = None
+        self.capability_status = model_status(model_path, ARCFACE_EMBEDDING)
+
+        self.runner = None
+        try:
+            factory = runner_factory or create_model_runner
+            self.runner = factory(model_path, metadata=ARCFACE_EMBEDDING)
+            self.available = True
+        except ModelUnavailableError as exc:
+            self.error = exc.message
+            self.capability_status.update(exc.as_dict())
+            log.error("ARCFACE unavailable code=%s", exc.code)
+        except Exception as exc:
+            self.error = str(exc)
+            self.capability_status.update({
+                "status": "unavailable",
+                "code": "rknn_runtime_error",
+                "path": model_path,
+                "error": self.error,
+            })
+            log.error("ARCFACE unavailable code=rknn_runtime_error")
+
+        self.embedding_dim = 512
+        self._db_lock = threading.RLock()
+        self.dataset_version = ""
+        self.dataset_revision = 0
+        self.dataset_fingerprint = ""
+
+        if self.available:
+            log.info("ARCFACE MODEL READY dim=%d backend=%s", self.embedding_dim, self.runner.backend)
+
+        # The active database is an immutable snapshot.  It is deliberately
+        # not populated from the historical display-name directory layout.
+        # The worker installs a manifest-built snapshot at startup/reload.
+        self.resident_embeddings = {}
+
+        self.debug_runtime_saves = False
+
+        self.runtime_save_counter = 0
+
+        # Unscoped filesystem discovery is intentionally disabled.  Dataset
+        # Activation is owned by the worker and always comes from datasets/current.
+
+    def capability(self):
+        status = dict(self.capability_status or {})
+        status.setdefault("path", self.model_path)
+        status["status"] = "available" if self.available else "unavailable"
+        status.setdefault("support_state", "SUPPORTED")
+        status["configuration_state"] = "CONFIGURED" if os.path.isfile(self.model_path) else "UNAVAILABLE"
+        status["availability_state"] = "AVAILABLE" if self.available else "UNAVAILABLE"
+        status["metadata"] = ARCFACE_EMBEDDING.as_dict()
+        if self.error:
+            status["error"] = self.error
+        return status
+
+    def close(self):
+        if self.runner is not None:
+            self.runner.close()
+            self.runner = None
+        self.available = False
+
+    # ------------------------------------------------
+    # DEBUG SAVE
+    # ------------------------------------------------
+
+    def save_runtime_face(
+        self,
+        face,
+        prefix="runtime",
+    ):
+
+        if not self.debug_runtime_saves:
+            return
+
+        if face is None:
+            return
+
+        if face.size == 0:
+            return
+
+        try:
+
+            ts = int(
+                time.time() * 1000
+            )
+
+            path = os.path.join(
+                self.debug_dir,
+                f"{prefix}_{ts}_{self.runtime_save_counter}.jpg"
+            )
+
+            self.runtime_save_counter += 1
+
+            cv2.imwrite(
+                path,
+                face,
+            )
+
+        except Exception:
+
+            log.exception(
+                "FAILED TO SAVE RUNTIME FACE"
+            )
+
+    # ------------------------------------------------
+    # NORMALIZE
+    # ------------------------------------------------
+
+    def _normalize(
+        self,
+        v,
+    ):
+
+        v = np.asarray(
+            v,
+            dtype=np.float32,
+        ).flatten()
+
+        norm = np.linalg.norm(v)
+
+        if norm == 0:
+            return v
+
+        return v / norm
+
+    @staticmethod
+    def validate_embedding(value, expected_dim=512):
+        """Validate the contract shared by embed and FaceDB loading."""
+        if value is None:
+            return None, "embedding_missing"
+        vector = np.asarray(value, dtype=np.float32).flatten()
+        if vector.size != expected_dim:
+            return None, "embedding_dimension_mismatch"
+        if not np.isfinite(vector).all():
+            return None, "embedding_non_finite"
+        norm = float(np.linalg.norm(vector))
+        if not np.isfinite(norm) or norm <= 0.0:
+            return None, "embedding_zero"
+        return vector / norm, ""
+
+    def model_fingerprint(self):
+        try:
+            digest = hashlib.sha256()
+            with open(self.model_path, "rb") as model:
+                for chunk in iter(lambda: model.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
+        except OSError:
+            return ""
+
+    def build_face_db(self, entries):
+        """Build a complete immutable resident_id -> photo_id -> embedding map."""
+        database = {}
+        for entry in entries:
+            resident_id = entry["resident_id"]
+            photo_id = entry["photo_id"]
+            vector, failure = self.validate_embedding(entry["embedding"], self.embedding_dim)
+            if failure:
+                raise ValueError(failure)
+            database.setdefault(resident_id, {})[photo_id] = vector
+        return database
+
+    def swap_face_db(self, database, version="", revision=0, fingerprint=""):
+        """Atomically replace the complete database used by recognition."""
+        immutable = {
+            resident: {photo: vector.copy() for photo, vector in photos.items()}
+            for resident, photos in database.items()
+        }
+        with self._db_lock:
+            self.resident_embeddings = {
+                resident: {
+                    "base": np.asarray(list(photos.values()), dtype=np.float32),
+                    "auto": np.empty((0, self.embedding_dim), dtype=np.float32),
+                    "photo_ids": tuple(photos.keys()),
+                    "photos": photos,
+                }
+                for resident, photos in immutable.items()
+            }
+            self.dataset_version = version
+            self.dataset_revision = int(revision or 0)
+            self.dataset_fingerprint = fingerprint or ""
+
+    def active_dataset(self):
+        with self._db_lock:
+            return {
+                "version": self.dataset_version,
+                "revision": self.dataset_revision,
+                "fingerprint": self.dataset_fingerprint,
+                "dimension": self.embedding_dim,
+                "resident_count": len(self.resident_embeddings),
+            }
+
+    # ------------------------------------------------
+    # UPSCALE SMALL FACES
+    # ------------------------------------------------
+
+    def improve_face_resolution(
+        self,
+        face,
+    ):
+
+        h, w = face.shape[:2]
+
+        min_size = min(h, w)
+
+        if min_size >= 112:
+            return face
+
+        scale = 112 / min_size
+
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+
+        face = cv2.resize(
+            face,
+            (new_w, new_h),
+            interpolation=cv2.INTER_CUBIC,
+        )
+
+        return face
+
+    # ------------------------------------------------
+    # RAW EMBEDDING
+    # ------------------------------------------------
+
+    def _embed_raw(
+        self,
+        face,
+    ):
+
+        if not getattr(self, "available", True) or self.runner is None:
+            self.last_embed_failure = "embedding_backend_unavailable"
+            return None
+
+        face = cv2.cvtColor(
+            face,
+            cv2.COLOR_BGR2RGB,
+        )
+
+        face = face.astype(
+            np.float32
+        )
+
+        face = (
+            face - 127.5
+        ) * 0.0078125
+
+        face = np.transpose(
+            face,
+            (2, 0, 1),
+        )
+
+        face = np.expand_dims(
+            face,
+            axis=0,
+        )
+
+        face = np.ascontiguousarray(
+            face
+        )
+
+        outputs = self.runner.infer(
+            face
+        )
+
+        if not outputs:
+
+            log.error(
+                "ARCFACE EMPTY OUTPUT"
+            )
+            self.last_embed_failure = "embedding_missing"
+            return None
+
+        emb = np.asarray(
+            outputs[0],
+            dtype=np.float32,
+        ).flatten()
+
+        self.last_embed_failure = ""
+
+        if emb.size != self.embedding_dim:
+
+            self.last_embed_failure = "embedding_dimension_mismatch"
+
+            log.error(
+                "INVALID EMBEDDING SIZE=%d",
+                emb.size,
+            )
+
+            return None
+
+        if not np.isfinite(emb).all():
+
+            self.last_embed_failure = "embedding_non_finite"
+
+            log.error(
+                "EMBEDDING CONTAINS NAN"
+            )
+
+            return None
+
+        return emb
+
+    # ------------------------------------------------
+    # MAIN EMBED
+    # ------------------------------------------------
+
+    def embed(
+        self,
+        face,
+    ):
+
+        self.last_embed_failure = ""
+        if not getattr(self, "available", True) or self.runner is None:
+            self.last_embed_failure = "embedding_backend_unavailable"
+            return None
+
+        if face is None:
+
+            log.warning(
+                "EMBED FACE NONE"
+            )
+
+            self.last_embed_failure = "embedding_missing"
+            return None
+
+        if face.size == 0:
+
+            log.warning(
+                "EMBED FACE EMPTY"
+            )
+
+            self.last_embed_failure = "face_too_small"
+            return None
+
+        h, w = face.shape[:2]
+
+        if h < 20 or w < 20:
+
+            log.warning(
+                "FACE TOO SMALL h=%d w=%d",
+                h,
+                w,
+            )
+
+            self.last_embed_failure = "face_too_small"
+            return None
+
+        # ------------------------------------------------
+        # SAVE RAW ROI BEFORE ANY PROCESSING
+        # ------------------------------------------------
+
+        self.save_runtime_face(
+            face,
+            "raw_roi",
+        )
+
+        face = self.improve_face_resolution(
+            face
+        )
+
+        if (
+            face.shape[0] != 112 or
+            face.shape[1] != 112
+        ):
+
+            face = cv2.resize(
+                face,
+                (112, 112),
+                interpolation=cv2.INTER_CUBIC,
+            )
+
+        self.save_runtime_face(
+            face,
+            "arcface_input",
+        )
+
+        try:
+
+            face_flip = cv2.flip(
+                face,
+                1,
+            )
+
+            emb1 = self._embed_raw(
+                face
+            )
+
+            emb2 = self._embed_raw(
+                face_flip
+            )
+
+            if emb1 is None:
+                return None
+
+            if emb2 is None:
+                return None
+
+            emb = (
+                emb1 + emb2
+            ) / 2
+
+            emb, failure = self.validate_embedding(emb, self.embedding_dim)
+            if failure:
+                self.last_embed_failure = failure
+                return None
+
+            log.info(
+                "ARCFACE EMBEDDING OK",
+            )
+
+            return emb
+
+        except Exception:
+
+            log.exception(
+                "ARCFACE EMBED FAILED"
+            )
+
+            return None
+
+    # ------------------------------------------------
+    # LOAD DATASET
+    # ------------------------------------------------
+
+    def load_faces(
+        self,
+        faces_root,
+    ):
+
+        log.info(
+            "LOADING FACE DATASET"
+        )
+
+        if not os.path.exists(
+            faces_root
+        ):
+
+            log.warning(
+                "faces_root missing -> %s",
+                faces_root,
+            )
+
+            return
+
+        residents = [
+
+            r for r in os.listdir(
+                faces_root
+            )
+
+            if os.path.isdir(
+                os.path.join(
+                    faces_root,
+                    r,
+                )
+            )
+
+            and not r.startswith(".")
+        ]
+
+        runtime_debug_state = (
+            self.debug_runtime_saves
+        )
+
+        self.debug_runtime_saves = False
+
+        for resident in residents:
+
+            resident_dir = os.path.join(
+                faces_root,
+                resident,
+            )
+
+            base_dir = os.path.join(
+                resident_dir,
+                "base",
+            )
+
+            auto_dir = os.path.join(
+                resident_dir,
+                "auto",
+            )
+
+            base_embeddings = []
+
+            auto_embeddings = []
+
+            def load_dir(
+                directory,
+                target,
+            ):
+
+                if not os.path.isdir(
+                    directory
+                ):
+                    return
+
+                for img in os.listdir(
+                    directory
+                ):
+
+                    if not img.lower().endswith(
+                        (
+                            ".jpg",
+                            ".jpeg",
+                            ".png",
+                        )
+                    ):
+                        continue
+
+                    path = os.path.join(
+                        directory,
+                        img,
+                    )
+
+                    frame = cv2.imread(
+                        path
+                    )
+
+                    if frame is None:
+
+                        log.warning(
+                            "FAILED TO LOAD FACE=%s",
+                            path,
+                        )
+
+                        continue
+
+                    face = cv2.resize(
+                        frame,
+                        (112, 112),
+                    )
+
+                    emb = self.embed(
+                        face
+                    )
+
+                    if emb is None:
+                        continue
+
+                    target.append(
+                        emb
+                    )
+
+            load_dir(
+                base_dir,
+                base_embeddings,
+            )
+
+            load_dir(
+                auto_dir,
+                auto_embeddings,
+            )
+
+            self.resident_embeddings[
+                resident
+            ] = {
+                "base": np.array(
+                    base_embeddings,
+                    dtype=np.float32,
+                ),
+                "auto": np.array(
+                    auto_embeddings,
+                    dtype=np.float32,
+                ),
+            }
+
+            log.info(
+                "RESIDENT=%s base=%d auto=%d",
+                resident,
+                len(base_embeddings),
+                len(auto_embeddings),
+            )
+
+        self.debug_runtime_saves = (
+            runtime_debug_state
+        )
+
+        log.info(
+            "FACE DATASET READY residents=%d",
+            len(
+                self.resident_embeddings
+            ),
+        )
+
+    # ------------------------------------------------
+    # IDENTIFICATION
+    # ------------------------------------------------
+
+    def identify_embedding(
+        self,
+        embedding,
+    ):
+
+        if embedding is None:
+
+            return (
+                "unknown",
+                None,
+                0.0,
+            )
+
+        best_identity = None
+
+        best_score = 0.0
+
+        with self._db_lock:
+            active_embeddings = dict(self.resident_embeddings)
+
+        query, failure = self.validate_embedding(embedding, self.embedding_dim)
+        if failure:
+            return "unknown", None, 0.0
+        query = query.astype("float32")
+
+        for resident, embeddings in active_embeddings.items():
+
+            base_embeddings = (
+                embeddings["base"]
+            )
+
+            auto_embeddings = (
+                embeddings["auto"]
+            )
+
+            score = 0.0
+
+            # ------------------------------------------------
+            # BASE EMBEDDINGS
+            # ------------------------------------------------
+
+            if len(base_embeddings) > 0:
+
+                base_scores = np.dot(
+                    base_embeddings,
+                    query,
+                )
+
+                base_score = float(
+                    np.max(base_scores)
+                )
+
+                score = base_score
+
+            # ------------------------------------------------
+            # AUTO EMBEDDINGS
+            # ------------------------------------------------
+
+            if len(auto_embeddings) > 0:
+
+                auto_scores = np.dot(
+                    auto_embeddings,
+                    query,
+                )
+
+                auto_score = float(
+                    np.max(auto_scores)
+                )
+
+                score = max(
+                    score,
+                    auto_score,
+                )
+
+            if score > best_score:
+
+                best_score = score
+
+                best_identity = resident
+
+        # ------------------------------------------------
+        # MATCH
+        # ------------------------------------------------
+
+        if (
+            best_score >=
+            self.match_threshold
+        ):
+
+            log.info("FACE MATCH THRESHOLD MET")
+
+            return (
+                "match",
+                best_identity,
+                best_score,
+            )
+
+        # ------------------------------------------------
+        # UNCERTAIN
+        # ------------------------------------------------
+
+        if (
+            best_score >=
+            self.uncertain_threshold
+        ):
+
+            log.info("FACE CANDIDATE RANGE THRESHOLD MET")
+
+            return (
+                "uncertain",
+                best_identity,
+                best_score,
+            )
+
+        log.info("FACE UNKNOWN THRESHOLD RESULT")
+
+        return (
+            "unknown",
+            None,
+            best_score,
+        )

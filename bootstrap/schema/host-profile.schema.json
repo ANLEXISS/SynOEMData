@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synora.invalid/schemas/host-profile-1.0.json",
+  "title": "Synora Host Profile",
+  "type": "object",
+  "required": ["schema_version", "bootstrap_version", "timestamp_utc", "host", "os", "cpu", "memory", "storage", "network", "gpu", "npu", "peripherals", "process_management", "execution_environment", "security", "dependencies", "detection_errors"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "bootstrap_version": {"type": "string"},
+    "timestamp_utc": {"type": "string"},
+    "host": {"type": "object", "required": ["hostname", "status", "value", "evidence"]},
+    "os": {"type": "object", "required": ["kernel", "kernel_release", "kernel_architecture", "distribution_id", "distribution_version", "distribution_family", "operating_system_id", "linux_abi_hints", "libc_family"]},
+    "cpu": {"type": "object", "required": ["architecture", "model", "vendor", "logical_cpu_count", "core_count", "frequency_hz", "instruction_set_hints", "hardware_platform"]},
+    "memory": {"type": "object", "required": ["physical_total_bytes", "available_bytes", "swap_total_bytes", "swap_available_bytes", "cgroup_limit_bytes"]},
+    "storage": {"type": "object"}, "network": {"type": "object"}, "gpu": {"type": "object"},
+    "npu": {"type": "object", "required": ["hardware_detected", "driver_detected", "runtime_detected", "device_accessible", "inference_verified"]},
+    "peripherals": {"type": "object"}, "process_management": {"type": "object"}, "execution_environment": {"type": "object"}, "security": {"type": "object"}, "dependencies": {"type": "object"},
+    "detection_errors": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

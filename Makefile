@@ -1,0 +1,515 @@
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -eu -o pipefail -c
+
+.PHONY: build test web-build install update start stop restart doctor delete clean help \
+	check-go install-deps install-dirs install-bins install-config install-models \
+	rotate-api-token generate-local-cert generate-discovery-cert install-mediamtx install-vision-worker install-systemd enable-services \
+	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck
+
+.PHONY: test architecture-check test-central-v1 test-camera-mock qualify-cognitive-v1 qualify-cognitive-v3 verify-rtmpose-clip cognitive-runtime-benchmark-v1
+.PHONY: test-contract-baseline test-device-harness test-semantic-foundation
+
+CENTRAL_E2E_MANIFEST ?= testdata/central-e2e-v1/manifest.json
+CENTRAL_E2E_OUT ?= $(if $(OUT),$(OUT),/tmp/synora-central-e2e-v1.json)
+CENTRAL_E2E_MEDIA_MANIFEST ?= testdata/central-e2e-v1/media/le2i-v1-regression.json
+
+COGNITIVE_V1_BUNDLE ?= build/cognitive-mlp-v1
+COGNITIVE_BUNDLE ?= $(COGNITIVE_V1_BUNDLE)
+COGNITIVE_RUNTIME_BENCHMARK_OUT ?= /tmp/synora-cognitive-runtime-benchmark.json
+V3_LEARNING ?= /home/rock/Synora-learning
+V3_DATASET ?= $(V3_LEARNING)/build/cognitive-snapshot-v3-dataset
+V3_CHECKPOINT ?= $(V3_LEARNING)/build/cognitive-mlp-v3-checkpoint
+V3_BUNDLE ?= $(CURDIR)/build/cognitive-mlp-v3-candidate
+V3_QUALIFICATION_OUT ?= $(V3_LEARNING)/build/cognitive-v3-qualification.json
+
+PREFIX ?= /opt/synora
+BINDIR ?= $(PREFIX)/bin
+SERVICES_DIR ?= $(PREFIX)/services
+VISION_WORKER_DIR ?= $(SERVICES_DIR)/vision-worker
+MEDIAMTX_DIR ?= $(PREFIX)/mediamtx
+MODELS_DIR ?= $(DATA_DIR)/models
+CONFIG_DIR ?= /etc/synora
+TEMPLATE_DIR ?= $(PREFIX)/config-templates
+DATA_DIR ?= /var/lib/synora
+CONNECTIVITY_DATA_DIR ?= $(DATA_DIR)/connectivity
+TLS_DIR ?= /etc/synora/tls
+DISCOVERY_CERT_DIR ?= /etc/synora/certs
+DISCOVERY_CERT_FILE ?= $(DISCOVERY_CERT_DIR)/server.crt
+DISCOVERY_KEY_FILE ?= $(DISCOVERY_CERT_DIR)/server.key
+TLS_IP ?= 100.80.170.47
+TLS_DNS ?= rock-5-itx
+SYNORA_SECURITY ?= $(CONFIG_DIR)/security.yaml
+SESSION_STORE ?= $(DATA_DIR)/auth/sessions.json
+SYSTEMD_DIR ?= /etc/systemd/system
+RUN_DIR ?= /run/synora
+BUS_SOCKET ?= $(RUN_DIR)/bus.sock
+SERVICE_USER ?= synora
+GO ?= $(shell if command -v go >/dev/null 2>&1; then command -v go; elif [ -x /usr/local/go/bin/go ]; then printf '%s' /usr/local/go/bin/go; else printf '%s' go; fi)
+GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
+PYTHON ?= python3
+VISION_PYTHON ?= /usr/bin/python3
+COGNITIVE_PYTHON ?= $(PYTHON)
+ifneq ($(strip $(SYNORA_PYTORCH_RUNTIME)),)
+COGNITIVE_PYTHON := $(patsubst %/lib/python3.11/site-packages,%,$(SYNORA_PYTORCH_RUNTIME))/bin/python
+endif
+GOCACHE ?= /tmp/synora-gocache
+
+EXPECTED_RKNN_MODELS := arcface_w600k_r50.rknn det_10g.rknn yolov8.rknn
+
+ifeq ($(shell id -u),0)
+SUDO :=
+else
+SUDO := sudo
+endif
+
+GO_BINS := \
+	synora-bus:./cmd/synora-bus \
+	synora-api:./cmd/synora-api \
+	synora-core:./cmd/synora-core \
+	synora-discovery:./cmd/synora-discovery \
+	synora-network-config:./cmd/synora-network-config \
+	synora-runtime-manager:./cmd/synora-runtime-manager \
+	synora-connect:./cmd/synora-connect
+
+ADMIN_TOOL_BINS := \
+	synora-bootstrap-config:./cmd/synora-bootstrap-config
+
+RUNTIME_SERVICES := \
+	synora-bus \
+	synora-runtime-manager \
+	synora-core \
+	synora-discovery \
+	synora-connect
+
+START_ORDER := synora-bus synora-runtime-manager synora-core synora-discovery synora-connect mediamtx
+STOP_ORDER := mediamtx synora-connect synora-discovery synora-core synora-runtime-manager synora-bus
+SYSTEMD_UNITS := $(addsuffix .service,$(RUNTIME_SERVICES)) mediamtx.service
+
+help:
+	@printf '%s\n' \
+		'Targets:' \
+		'  make build                 Build Go runtime binaries into ./bin' \
+		'  make web-build             Build the V1 Intelligence webapp into synora-web/dist' \
+		'  make test                  Run the central harness, Go/Python tests and contract checks' \
+		'  make test-contract-baseline Run deterministic Go/Python contract compatibility fixtures' \
+		'  make test-device-harness    Run shared device/fault scenarios and module boundary tests' \
+		'  make test-semantic-foundation Run both contract baseline and device harness' \
+		'  make test-central-v1       Run the single hermetic Core/Store/Discovery/MLP E2E harness' \
+		'  make test-camera-mock      Build and run the native C++ camera/mock tests' \
+		'  make qualify-cognitive-v3  Generate, train and qualify the V3 candidate in active_dry_run' \
+		'  make test-central-v1 BUNDLE=v3  Run the V3 candidate cases in active_dry_run' \
+		'  make cognitive-runtime-benchmark-v1  Measure cold and steady cognitive runtime only' \
+		'  make verify-rtmpose-clip CLIP=/path/video.mp4  Smoke-test RTMPose without claiming fall validation' \
+		'  make install               Fresh runtime install to /opt, /etc, /var/lib and systemd' \
+		'  make rotate-api-token      Rotate security.yaml token and restart synora-discovery' \
+		'  make generate-local-cert  Generate a local self-signed TLS certificate' \
+		'  make generate-discovery-cert  Generate the Discovery vision ingress certificate' \
+		'  make update                Rebuild and update deployed runtime without dependency install' \
+		'  make start                 Start runtime services' \
+		'  make stop                  Stop runtime services and remove bus socket' \
+		'  make restart               Stop then start runtime services' \
+		'  make doctor                Check local runtime health without modifying state' \
+		'  make delete CONFIRM=YES    Destructive removal from the proto machine' \
+		'  make clean                 Remove local repo build artifacts' \
+		'  make install-bootstrap-config  Install the local production config bootstrap tool'
+
+check-go:
+	@if ! command -v "$(GO)" >/dev/null 2>&1 && [ ! -x "$(GO)" ]; then \
+		echo "FAIL: Go not found. Install Go or run make GO=/path/to/go <target>."; \
+		exit 1; \
+	fi
+	@"$(GO)" version
+
+build: check-go build-bootstrap-config build-boot-healthcheck generate-version
+	@mkdir -p bin
+	@for item in $(GO_BINS); do \
+		name="$${item%%:*}"; pkg="$${item#*:}"; \
+		echo "Building $$name from $$pkg"; \
+		GOCACHE=$(GOCACHE) "$(GO)" build $(GO_BUILD_FLAGS) -o "bin/$$name" "$$pkg"; \
+		done
+
+web-build:
+	cd synora-web && npm run build
+
+build-boot-healthcheck: check-go
+	@mkdir -p bin
+	@echo "Building synora-boot-healthcheck"
+	@GOCACHE=$(GOCACHE) "$(GO)" build $(GO_BUILD_FLAGS) -o bin/synora-boot-healthcheck ./cmd/synora-boot-healthcheck
+
+generate-version: check-go
+	@mkdir -p build
+	@GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-version -output build/version.json
+
+build-bootstrap-config: check-go
+	@mkdir -p bin
+	@for item in $(ADMIN_TOOL_BINS); do \
+		name="$${item%%:*}"; pkg="$${item#*:}"; \
+		echo "Building $$name from $$pkg"; \
+		GOCACHE=$(GOCACHE) "$(GO)" build -o "bin/$$name" "$$pkg"; \
+	done
+
+test-central-v1: check-go
+	$(MAKE) test-camera-mock
+	VISION_ROOT="$${MEDIA_ROOT:-$${SYNORA_VISION_MEDIA_ROOT:-}}"; if [ "$(MEDIA)" = "le2i" ]; then MEDIA_FLAG="--media --media-manifest $${MEDIA_MANIFEST:-$(CENTRAL_E2E_MEDIA_MANIFEST)}"; elif [ -n "$$VISION_ROOT" ]; then MEDIA_FLAG="--media --media-manifest $${MEDIA_MANIFEST:-testdata/central-e2e-v1/vision-media-v1/manifest.json}"; else MEDIA_FLAG=; fi; \
+	SYNORA_VISION_MEDIA_ROOT="$$VISION_ROOT" SYNORA_POSE_RKNN_MODEL="$${POSE_MODEL:-$${SYNORA_POSE_RKNN_MODEL:-}}" GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-central-test --manifest "$(CENTRAL_E2E_MANIFEST)" --case "$${CASE:-}" --bundle "$${BUNDLE:-}" $$MEDIA_FLAG --out "$(CENTRAL_E2E_OUT)"
+
+test-camera-mock:
+	cmake -S camera/v0 -B build/camera-v0 -DCMAKE_BUILD_TYPE=Debug
+	cmake --build build/camera-v0 -j2
+	ctest --test-dir build/camera-v0 --output-on-failure
+
+architecture-check:
+	GO="$(GO)" python3 tools/architecture/check.py
+
+oem-profile-core-only: architecture-check
+	"$(GO)" build $(GO_BUILD_FLAGS) ./cmd/synora-bus ./cmd/synora-core
+	"$(GO)" test -buildvcs=false -p 1 -count=1 ./cmd/synora-core -run '^TestCoreOnlyCompositionProcessesBusEvent$$'
+
+qualify-camera: check-go
+	GOCACHE=$(GOCACHE) "$(GO)" run ./cmd/synora-camera-qualification --out "$${OUT:-/tmp/synora-camera-qualification.json}"
+
+test: architecture-check test-central-v1 check-go
+	GOCACHE=$(GOCACHE) "$(GO)" test ./...
+	$(PYTHON) -m compileall -q services/vision-worker
+	$(PYTHON) -m unittest discover -s services/vision-worker/tests -p 'test_*.py'
+
+# Deterministic, hardware-free contract baseline; uses fixed fixtures and temp dirs.
+test-contract-baseline:
+	GOCACHE=$(GOCACHE) "$(GO)" test -count=1 -timeout=2m -p 1 ./pkg/contract ./internal/vision ./internal/cognitivecore ./internal/discovery
+	PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 timeout 120s $(PYTHON) -m unittest discover -s services/vision-worker/tests -p 'test_contract_baseline.py'
+
+# Test-only simulator and shared JSON scenarios; no device/network I/O.
+test-device-harness:
+	GOCACHE=$(GOCACHE) "$(GO)" test -count=1 -timeout=2m -p 1 ./testkit ./pkg/contract ./internal/vision ./internal/cognitivecore ./internal/automation ./internal/discovery ./internal/discovery/runtime ./internal/discovery/network ./internal/foundation/statestore
+	PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 timeout 120s $(PYTHON) -m unittest discover -s services/vision-worker/tests -p 'test_device_harness.py'
+
+test-semantic-foundation: test-contract-baseline test-device-harness
+
+qualify-cognitive-v1: check-go
+	@echo "V1 qualification is the central hermetic suite; no real clip or legacy replay is used."
+	$(MAKE) test-central-v1 BUNDLE=v1
+
+qualify-cognitive-v3:
+	@test -f "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" || { echo "FAIL: external V3 learning pipeline is missing" >&2; exit 2; }
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" build --output "$(V3_DATASET)"
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" train --dataset "$(V3_DATASET)" --output "$(V3_CHECKPOINT)"
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" export --checkpoint "$(V3_CHECKPOINT)" --output "$(V3_BUNDLE)"
+	$(PYTHON) "$(V3_LEARNING)/tools/cognitive_v3_pipeline.py" qualify --dataset "$(V3_DATASET)" --bundle "$(V3_BUNDLE)" --out "$(V3_QUALIFICATION_OUT)"
+
+verify-rtmpose-clip:
+	@test -f "$(CLIP)" || { echo "FAIL: CLIP is not a regular file: $(CLIP)" >&2; exit 2; }
+	SYNORA_RTMPOSE_MODEL_PATH="$${RTMPOSE_MODEL_PATH:-}" $(PYTHON) tools/verify_rtmpose_clip.py --clip "$(CLIP)" --out "$${OUT:-/tmp/synora-rtmpose-clip-smoke.json}"
+
+cognitive-runtime-benchmark-v1: check-go
+	"$(GO)" run ./cmd/synora-cognitive-runtime-bench --bundle "$(COGNITIVE_BUNDLE)" --iterations "$${COGNITIVE_RUNTIME_BENCHMARK_ITERATIONS:-128}" --out "$(COGNITIVE_RUNTIME_BENCHMARK_OUT)"
+
+install: install-deps build build-bootstrap-config install-dirs install-bins install-bootstrap-config install-boot-healthcheck install-version install-model-manifest install-config install-models install-mediamtx install-vision-worker install-systemd enable-services
+	@echo "Synora runtime installation complete."
+	@echo "Run 'make start' to start services or 'make doctor' to inspect the install."
+
+update: build install-bins install-config install-models install-mediamtx install-vision-worker install-systemd
+	$(SUDO) systemctl daemon-reload
+	@for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Restarting $$service"; \
+			$(SUDO) systemctl restart "$$service.service" || true; \
+		else \
+			echo "Skipping $$service: unit not installed"; \
+		fi; \
+	done
+	@echo "Synora runtime update complete."
+
+install-deps:
+	@if command -v apt-get >/dev/null 2>&1; then \
+		$(SUDO) apt-get update; \
+		$(SUDO) apt-get install -y ca-certificates curl rsync jq python3 python3-opencv python3-numpy python3-scipy python3-venv python3-pip; \
+	elif command -v dnf >/dev/null 2>&1; then \
+		$(SUDO) dnf install -y ca-certificates curl rsync jq python3 python3-pip; \
+	else \
+		echo "WARN: no supported package manager found; install ca-certificates curl rsync jq python3 manually."; \
+	fi
+
+install-dirs:
+	@$(SUDO) getent group $(SERVICE_USER) >/dev/null 2>&1 || \
+		$(SUDO) groupadd --system $(SERVICE_USER)
+	@$(SUDO) id -u $(SERVICE_USER) >/dev/null 2>&1 || \
+		$(SUDO) useradd --system --gid $(SERVICE_USER) --home $(DATA_DIR) --shell /usr/sbin/nologin $(SERVICE_USER)
+	$(SUDO) install -d -m 0755 $(PREFIX) $(BINDIR) $(SERVICES_DIR) $(VISION_WORKER_DIR) $(MEDIAMTX_DIR) $(MODELS_DIR)
+	$(SUDO) install -d -m 0755 $(CONFIG_DIR) $(DATA_DIR) $(DATA_DIR)/state $(DATA_DIR)/clips $(DATA_DIR)/logs
+	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(CONNECTIVITY_DATA_DIR)
+	$(SUDO) install -d -m 0750 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/vision
+	$(SUDO) install -d -m 0700 -o $(SERVICE_USER) -g $(SERVICE_USER) $(DATA_DIR)/auth
+	$(SUDO) install -d -m 0770 -o $(SERVICE_USER) -g $(SERVICE_USER) $(RUN_DIR)
+	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(PREFIX) $(DATA_DIR) $(RUN_DIR)
+
+install-bins: install-dirs
+	@for item in $(GO_BINS); do \
+		name="$${item%%:*}"; \
+		if [ ! -x "bin/$$name" ]; then echo "FAIL: bin/$$name missing; run make build first."; exit 1; fi; \
+		echo "Installing $$name"; \
+		$(SUDO) install -m 0755 "bin/$$name" "$(BINDIR)/$$name"; \
+	done
+
+install-config:
+	$(SUDO) install -d -m 0755 -o root -g $(SERVICE_USER) $(CONFIG_DIR)
+	$(SUDO) install -d -m 0755 -o root -g root $(TEMPLATE_DIR)
+	@for src in configs/*.yaml configs/*.yaml.template; do \
+		[ -e "$$src" ] || continue; \
+		name="$$(basename "$$src")"; \
+		echo "Installing safe template $(TEMPLATE_DIR)/$$name"; \
+		$(SUDO) install -m 0644 -o root -g root "$$src" "$(TEMPLATE_DIR)/$$name"; \
+	done
+	@for src in configs/*.yaml; do \
+		name="$$(basename "$$src")"; dst="$(CONFIG_DIR)/$$name"; \
+		case "$$name" in models.yaml) echo "Keeping model manifest in $(PREFIX)/models-manifest.yaml"; continue ;; esac; \
+		case "$$name" in security.yaml|auth.yaml|network.yaml|devices.yaml) \
+			echo "Deferring generated runtime config $$dst to synora-bootstrap-config"; continue ;; \
+		esac; \
+		if [ -e "$$dst" ] || [ -L "$$dst" ]; then \
+			echo "Keeping existing $$dst"; \
+		else \
+			echo "Installing $$dst"; \
+			$(SUDO) install -m 0640 -o root -g $(SERVICE_USER) "$$src" "$$dst"; \
+		fi; \
+	done
+
+install-models: install-dirs
+	@if [ -d models ]; then \
+		echo "Installing RKNN models only"; \
+		$(SUDO) rsync -a --delete --delete-excluded --prune-empty-dirs \
+			--include='*/' \
+			--include='arcface_w600k_r50.rknn' \
+			--include='det_10g.rknn' \
+			--include='yolov8.rknn' \
+			--exclude='*' \
+			models/ $(MODELS_DIR)/; \
+		$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(MODELS_DIR); \
+		$(SUDO) find $(MODELS_DIR) -type f -exec chmod 0644 {} \;; \
+	else \
+		echo "WARN: models directory missing; no RKNN models installed."; \
+	fi
+	@for model in $(EXPECTED_RKNN_MODELS); do \
+		if [ -f "$(MODELS_DIR)/$$model" ]; then echo "Model present: $(MODELS_DIR)/$$model"; \
+		else echo "WARN: expected RKNN model missing: $(MODELS_DIR)/$$model"; fi; \
+	done
+
+install-vision-worker: install-dirs
+	$(PYTHON) -m compileall -q services/vision-worker
+	$(SUDO) rsync -a --delete \
+		--delete-excluded \
+		--exclude='__pycache__/' \
+		--exclude='*.pyc' \
+		--include='worker.py' \
+		--include='requirements.txt' \
+		--include='core/' \
+		--include='core/***' \
+		--include='modules/' \
+		--include='modules/***' \
+		--exclude='*' \
+		services/vision-worker/ $(VISION_WORKER_DIR)/
+	$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(VISION_WORKER_DIR)
+	@if [ -f "$(VISION_WORKER_DIR)/worker.py" ]; then $(SUDO) chmod 0755 "$(VISION_WORKER_DIR)/worker.py"; fi
+
+install-bootstrap-config: build-bootstrap-config install-dirs
+	$(SUDO) install -m 0755 -o root -g root bin/synora-bootstrap-config "$(BINDIR)/synora-bootstrap-config"
+
+install-boot-healthcheck: build-boot-healthcheck install-dirs
+	$(SUDO) install -m 0755 -o root -g root bin/synora-boot-healthcheck "$(BINDIR)/synora-boot-healthcheck"
+
+install-version: generate-version install-dirs
+	$(SUDO) install -m 0644 -o root -g root build/version.json "$(PREFIX)/version.json"
+
+install-model-manifest: install-dirs
+	$(SUDO) install -m 0644 -o root -g root configs/models.yaml "$(PREFIX)/models-manifest.yaml"
+
+rotate-api-token: check-go
+	@if [ ! -f "$(SYNORA_SECURITY)" ]; then \
+		echo "FAIL: $(SYNORA_SECURITY) not found"; \
+		exit 1; \
+	fi
+	@backup="$(SYNORA_SECURITY).bak.$$(date +%Y%m%d-%H%M%S)"; \
+	echo "Backing up $(SYNORA_SECURITY) to $$backup"; \
+	$(SUDO) cp -a "$(SYNORA_SECURITY)" "$$backup"
+	$(SUDO) "$(GO)" run ./cmd/synora-token-rotate -path "$(SYNORA_SECURITY)"
+	$(SUDO) systemctl restart synora-discovery
+
+generate-local-cert:
+	@if ! command -v openssl >/dev/null 2>&1; then echo "FAIL: openssl is required" >&2; exit 1; fi
+	@if [ -e "$(TLS_DIR)/synora.crt" ] || [ -e "$(TLS_DIR)/synora.key" ]; then \
+		echo "FAIL: TLS files already exist in $(TLS_DIR); refusing to overwrite them." >&2; \
+		exit 1; \
+	fi
+	$(SUDO) install -d -m 0750 -o root -g $(SERVICE_USER) $(TLS_DIR)
+	@san="IP:127.0.0.1,DNS:localhost,DNS:$(TLS_DNS),DNS:synora.local"; \
+	if [ -n "$(TLS_IP)" ]; then san="IP:127.0.0.1,IP:$(TLS_IP),DNS:localhost,DNS:$(TLS_DNS),DNS:synora.local"; fi; \
+	$(SUDO) openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+		-keyout "$(TLS_DIR)/synora.key" \
+		-out "$(TLS_DIR)/synora.crt" \
+		-subj "/CN=$(TLS_DNS)" \
+		-addext "subjectAltName=$$san"
+	$(SUDO) chown root:$(SERVICE_USER) "$(TLS_DIR)/synora.crt" "$(TLS_DIR)/synora.key"
+	$(SUDO) chmod 0644 "$(TLS_DIR)/synora.crt"
+	$(SUDO) chmod 0640 "$(TLS_DIR)/synora.key"
+	@echo "Generated $(TLS_DIR)/synora.crt and $(TLS_DIR)/synora.key"
+
+generate-discovery-cert:
+	@if ! command -v openssl >/dev/null 2>&1; then echo "FAIL: openssl is required" >&2; exit 1; fi
+	@if [ -e "$(DISCOVERY_CERT_FILE)" ] || [ -e "$(DISCOVERY_KEY_FILE)" ]; then echo "FAIL: Discovery TLS files already exist; refusing to overwrite them." >&2; exit 1; fi
+	$(SUDO) install -d -m 0750 -o root -g $(SERVICE_USER) $(DISCOVERY_CERT_DIR)
+	$(SUDO) openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+		-keyout "$(DISCOVERY_KEY_FILE)" \
+		-out "$(DISCOVERY_CERT_FILE)" \
+		-subj "/CN=$(TLS_DNS)" \
+		-addext "subjectAltName=DNS:$(TLS_DNS),IP:$(TLS_IP)"
+	$(SUDO) chown root:$(SERVICE_USER) "$(DISCOVERY_CERT_FILE)" "$(DISCOVERY_KEY_FILE)"
+	$(SUDO) chmod 0644 "$(DISCOVERY_CERT_FILE)"
+	$(SUDO) chmod 0640 "$(DISCOVERY_KEY_FILE)"
+	@echo "Generated $(DISCOVERY_CERT_FILE) and $(DISCOVERY_KEY_FILE)"
+
+install-mediamtx: install-dirs
+	@if [ -d tools/mediamtx ]; then \
+		$(SUDO) rsync -a --delete tools/mediamtx/ $(MEDIAMTX_DIR)/; \
+		$(SUDO) chown -R $(SERVICE_USER):$(SERVICE_USER) $(MEDIAMTX_DIR); \
+		if [ -f "$(MEDIAMTX_DIR)/mediamtx" ]; then $(SUDO) chmod 0755 "$(MEDIAMTX_DIR)/mediamtx"; fi; \
+	else \
+		echo "WARN: tools/mediamtx missing; mediamtx unit may not start."; \
+	fi
+
+install-systemd:
+	$(SUDO) install -d -m 0755 $(SYSTEMD_DIR)
+	@for unit in $(SYSTEMD_UNITS); do \
+		if [ -f "deployments/systemd/$$unit" ]; then \
+			echo "Installing $$unit"; \
+			$(SUDO) install -m 0644 "deployments/systemd/$$unit" "$(SYSTEMD_DIR)/$$unit"; \
+		else \
+			echo "WARN: deployments/systemd/$$unit missing"; \
+		fi; \
+	done
+	@printf 'd %s 0770 %s %s -\n' "$(RUN_DIR)" "$(SERVICE_USER)" "$(SERVICE_USER)" | $(SUDO) tee /etc/tmpfiles.d/synora.conf >/dev/null
+	-$(SUDO) systemd-tmpfiles --create /etc/tmpfiles.d/synora.conf
+	$(SUDO) systemctl daemon-reload
+
+enable-services:
+	@for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Enabling $$service"; \
+			$(SUDO) systemctl enable "$$service.service" || true; \
+		else \
+			echo "Skipping enable for $$service: unit not installed"; \
+		fi; \
+	done
+
+start:
+	@for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Starting $$service"; \
+			$(SUDO) systemctl start "$$service.service" || true; \
+		else \
+			echo "Skipping $$service: unit not installed"; \
+		fi; \
+	done
+
+stop:
+	@for service in $(STOP_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			echo "Stopping $$service"; \
+			$(SUDO) systemctl stop "$$service.service" || true; \
+		else \
+			echo "Skipping $$service: unit not installed"; \
+		fi; \
+	done
+	$(SUDO) rm -f $(BUS_SOCKET)
+
+restart: stop start
+
+doctor: check-go
+	@echo "== Synora Doctor =="
+	@fail=0; warn=0; \
+	ok() { echo "OK   $$*"; }; \
+	warnf() { echo "WARN $$*"; warn=$$((warn+1)); }; \
+	failf() { echo "FAIL $$*"; fail=$$((fail+1)); }; \
+	command -v $(PYTHON) >/dev/null 2>&1 && ok "Python: $$($(PYTHON) --version 2>&1)" || failf "Python missing"; \
+	command -v jq >/dev/null 2>&1 && ok "jq: $$(jq --version)" || warnf "jq missing"; \
+	for bin in synora-bus synora-core synora-discovery synora-runtime-manager; do \
+		[ -x "$(BINDIR)/$$bin" ] && ok "binary $(BINDIR)/$$bin" || failf "binary missing $(BINDIR)/$$bin"; \
+	done; \
+		for service in $(START_ORDER); do \
+		if systemctl list-unit-files "$$service.service" >/dev/null 2>&1; then \
+			status="$$(systemctl is-active "$$service.service" 2>/dev/null || true)"; \
+			ok "unit $$service.service known ($$status)"; \
+			systemctl --no-pager --lines=0 status "$$service.service" >/dev/null 2>&1 || true; \
+		else \
+			[ "$$service" = "mediamtx" ] && warnf "unit $$service.service missing" || failf "unit $$service.service missing"; \
+		fi; \
+	done; \
+	if systemctl is-active synora-bus.service >/dev/null 2>&1; then \
+		if [ -S "$(BUS_SOCKET)" ]; then \
+			ok "bus socket $(BUS_SOCKET)"; \
+			[ -r "$(BUS_SOCKET)" ] && [ -w "$(BUS_SOCKET)" ] && ok "bus socket accessible by current user" || warnf "bus socket not accessible by current user; add user to group $(SERVICE_USER)"; \
+		else \
+			failf "bus socket missing"; \
+		fi; \
+	else \
+		warnf "synora-bus inactive; skipping active socket requirement"; \
+	fi; \
+	getent group $(SERVICE_USER) >/dev/null 2>&1 && ok "group $(SERVICE_USER) exists" || failf "group $(SERVICE_USER) missing"; \
+	id -nG "$$(id -un)" | grep -qw "$(SERVICE_USER)" && ok "current user is in group $(SERVICE_USER)" || warnf "current user is not in group $(SERVICE_USER); run: sudo usermod -aG $(SERVICE_USER) $$(id -un)"; \
+	$(PYTHON) -c 'import importlib.util,sys; missing=[m for m in ("cv2","numpy","scipy") if importlib.util.find_spec(m) is None]; rk=importlib.util.find_spec("rknnlite"); print("missing="+",".join(missing)); print("rknnlite="+("present" if rk else "missing")); sys.exit(1 if missing else 0)' >/tmp/synora-python-deps.log 2>&1 && ok "vision Python deps import" || { warnf "vision Python deps missing"; cat /tmp/synora-python-deps.log; }; \
+	[ -d "$(CONFIG_DIR)" ] && ok "$(CONFIG_DIR) exists" || failf "$(CONFIG_DIR) missing"; \
+	[ -d "$(DATA_DIR)" ] && ok "$(DATA_DIR) exists" || failf "$(DATA_DIR) missing"; \
+	[ -d "$(DATA_DIR)/state" ] && ok "$(DATA_DIR)/state exists" || failf "$(DATA_DIR)/state missing"; \
+	if [ -d "$(MODELS_DIR)" ]; then \
+		find "$(MODELS_DIR)" -type f -name '*.rknn' | grep -q . && ok "RKNN models present" || warnf "no RKNN models found"; \
+		for model in $(EXPECTED_RKNN_MODELS); do \
+			[ -f "$(MODELS_DIR)/$$model" ] && ok "model $$model present" || warnf "model $$model missing; capability will be degraded"; \
+		done; \
+		find "$(MODELS_DIR)" -type f \( -name '*.onnx' -o -name '*.pt' -o -name '*.torchscript' \) | grep -q . && failf "forbidden model files installed" || ok "no forbidden model files"; \
+	else \
+		warnf "$(MODELS_DIR) missing"; \
+	fi; \
+	[ -f "$(DISCOVERY_CERT_FILE)" ] && [ -f "$(DISCOVERY_KEY_FILE)" ] && ok "vision ingress TLS certificates present" || warnf "vision ingress TLS cert missing: $(DISCOVERY_CERT_FILE)"; \
+	code="$$(curl -s -o /tmp/synora-health.json -w '%{http_code}' http://127.0.0.1:8080/api/v1/health || true)"; \
+	if [ "$$code" = "200" ]; then ok "API health 200"; elif [ "$$code" = "401" ]; then warnf "API protected, provide token"; else warnf "API health unavailable ($$code)"; fi; \
+	if [ -n "$${SYNORA_API_TOKEN:-}" ]; then \
+		code="$$(curl -s -o /tmp/synora-state.json -w '%{http_code}' -H "Authorization: Bearer $$SYNORA_API_TOKEN" http://127.0.0.1:8080/api/v1/state || true)"; \
+		[ "$$code" = "200" ] && ok "Discovery state 200" || warnf "Discovery state returned $$code"; \
+	fi; \
+	find . -name '*_test.go' | grep -q . && ok "Go tests present" || failf "no Go tests found"; \
+		go_test_log="$$(mktemp /tmp/synora-go-test.XXXXXX.log)"; \
+		compileall_log="$$(mktemp /tmp/synora-compileall.XXXXXX.log)"; \
+		pkgs="$$( $(GO) list ./... | grep -v '/node_modules/' )"; \
+		GOCACHE=$(GOCACHE) "$(GO)" test $$pkgs >"$$go_test_log" 2>&1 && ok "go test ./..." || { failf "go test ./... failed"; tail -n 40 "$$go_test_log"; }; \
+		$(PYTHON) -m compileall -q services/vision-worker >"$$compileall_log" 2>&1 && ok "vision worker compileall" || { failf "vision worker compileall failed"; cat "$$compileall_log"; }; \
+		rm -f "$$go_test_log" "$$compileall_log"; \
+		echo "Summary: $$fail fail(s), $$warn warning(s)"; \
+		[ "$$fail" -eq 0 ]
+
+delete:
+	@if [ "$(CONFIRM)" != "YES" ]; then \
+		echo "Refusing destructive delete. Run: make delete CONFIRM=YES"; \
+		exit 1; \
+	fi
+	$(MAKE) stop
+	@stamp="$$(date +%Y%m%d-%H%M%S)"; \
+	backup_dir="$(DATA_DIR)/backups"; \
+	if [ ! -d "$(DATA_DIR)" ]; then backup_dir="/tmp"; fi; \
+	$(SUDO) mkdir -p "$$backup_dir"; \
+	if [ -d "$(CONFIG_DIR)" ] || [ -d "$(DATA_DIR)" ]; then \
+		echo "Creating backup $$backup_dir/pre-delete-$$stamp.tar.gz"; \
+		$(SUDO) tar -czf "$$backup_dir/pre-delete-$$stamp.tar.gz" --ignore-failed-read $(CONFIG_DIR) $(DATA_DIR) 2>/dev/null || true; \
+	fi
+	$(SUDO) rm -rf $(PREFIX) $(CONFIG_DIR) $(DATA_DIR) $(RUN_DIR)
+	$(SUDO) rm -f \
+		$(SYSTEMD_DIR)/synora-bus.service \
+		$(SYSTEMD_DIR)/synora-core.service \
+		$(SYSTEMD_DIR)/synora-discovery.service \
+		$(SYSTEMD_DIR)/synora-runtime-manager.service \
+		$(SYSTEMD_DIR)/mediamtx.service \
+		$(SYSTEMD_DIR)/mqtt"_bridge".service
+	$(SUDO) rm -f /etc/tmpfiles.d/synora.conf
+	$(SUDO) systemctl daemon-reload
+	@echo "Synora runtime files removed."
+
+clean:
+	rm -rf bin
+	rm -rf /tmp/synora-go-test*.log /tmp/synora-compileall*.log /tmp/synora-health.json /tmp/synora-state.json

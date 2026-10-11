@@ -1,0 +1,57 @@
+{
+  "id": "synora.integration",
+  "version": "0.1.0",
+  "description": "External API, event translation, device registry and composition adapters joining the existing runtime.",
+  "domain": "integration",
+  "required_capabilities": [
+    "synora.automation.action-dispatch/v1",
+    "synora.bus-json/v1",
+    "synora.contracts/v1"
+  ],
+  "optional_capabilities": [
+    "synora.vision.evidence/v1",
+    "media.mtx-api/v1"
+  ],
+  "required_dependencies": [
+    "synora.automation",
+    "synora.foundation",
+    "synora.intelligence"
+  ],
+  "optional_dependencies": [
+    "synora.vision",
+    "synora.platform"
+  ],
+  "provided_interfaces": [
+    "synora.integration.http-api/v1",
+    "synora.integration.device-registry/v1"
+  ],
+  "consumed_interfaces": [
+    "synora.automation.action-dispatch/v1",
+    "synora.bus-json/v1",
+    "synora.contracts/v1",
+    "synora.platform.network/v1"
+  ],
+  "configuration_schema": null,
+  "state_ownership": [
+    "configured device registry",
+    "API sessions in configured security store",
+    "event ingress validation"
+  ],
+  "resource_requirements": [
+    "network listener when API is enabled",
+    "Unix socket when bus is enabled"
+  ],
+  "maturity": "partial",
+  "source_packages": [
+    "cmd/synora-api",
+    "cmd/synora-discovery",
+    "internal/discovery",
+    "internal/discovery/ingress",
+    "internal/discovery/runtime",
+    "internal/device",
+    "internal/security",
+    "internal/systemstate",
+    "internal/connectivity",
+    "internal/foundationv1"
+  ]
+}

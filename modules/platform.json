@@ -1,0 +1,17 @@
+{
+  "id": "synora.platform",
+  "version": "0.1.0",
+  "description": "Host configuration, process supervision, OS and network operations, deployment and storage adapters.",
+  "domain": "platform",
+  "required_capabilities": [],
+  "optional_capabilities": [],
+  "required_dependencies": ["synora.foundation"],
+  "optional_dependencies": [],
+  "provided_interfaces": ["synora.platform.process-supervision/v1", "synora.platform.network/v1"],
+  "consumed_interfaces": ["synora.contracts/v1"],
+  "configuration_schema": null,
+  "state_ownership": ["runtime-manager service snapshots", "host network configuration state", "host process state"],
+  "resource_requirements": ["Linux utilities and privileges for current systemd/network adapters"],
+  "maturity": "partial",
+  "source_packages": ["cmd/synora-runtime-manager", "cmd/synora-network-config", "cmd/synora-connect", "internal/manager", "internal/discovery/network", "internal/boothealth", "internal/version", "bootstrap"]
+}

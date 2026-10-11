@@ -1,0 +1,97 @@
+# Python
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+services/vision-worker/venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Go
+bin/
+!services/vision-worker/bin/
+!services/vision-worker/bin/vision_clip_v1_demo.py
+main
+coverage.out
+*.prof
+*.pprof
+*.coverprofile
+*.race
+*.trace
+
+# Models
+*.onnx
+*.rknn
+*.pt
+*.pth
+*.weights
+
+# AI datasets
+datasets/
+data/
+faces/
+clips/
+debug/
+cache/
+tmp/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Runtime state and temporary files
+*.wal
+*.wal.*
+*.pid
+*.sock
+*.tmp
+*.temp
+/runtime/
+/var/
+
+# Environment
+.env
+.env.*
+
+# Local deployment configuration may include device, resident, or auth data.
+# Keep checked-in *.yaml.template examples; never commit instance YAML files.
+/configs/*.yaml
+/configs/*.yml
+
+# Webapp build artifacts
+node_modules/
+webapp/node_modules/
+webapp/dist/
+webapp/build/
+webapp/.vite/
+webapp/.cache/
+dist/
+build/
+.next/
+.nuxt/
+
+*.mp4
+yolo_debug.txt
+tools/mediamtx/mediamtx
+
+# Local system-test reports
+artifacts/system-test/
+
+# Local inference benchmark output and fixture derived from test3.mp4
+out/
+testdata/vision/*.fixture.json
+
+# Local audit exports
+.audit/
+audit-export/

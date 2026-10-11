@@ -1,0 +1,3 @@
+#!/bin/sh
+scan_dependencies() { DEPENDENCIES=''; for _d in go python3 ffmpeg gst-launch-1.0 sqlite3 docker podman; do _v=unavailable; if has_cmd "$_d"; then _v=$( "$_d" --version 2>/dev/null | sed -n '1p'); [ -n "$_v" ] || _v=present; fi; DEPENDENCIES="$DEPENDENCIES$_d=$_v;"; done; for _lib in 'libonnxruntime.so' 'librknnrt.so'; do _found=false; has_cmd ldconfig && ldconfig -p 2>/dev/null | grep -q "$_lib" && _found=true; DEPENDENCIES="$DEPENDENCIES$_lib=$_found;"; done; DEPENDENCIES="$DEPENDENCIES mediamtx=$(has_cmd mediamtx && echo present || echo unavailable)"; }
+dependencies_json() { printf '{"observed":'; json_quote "$DEPENDENCIES"; printf ',"presence_implies_compatibility":false}'; }

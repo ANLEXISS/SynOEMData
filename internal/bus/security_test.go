@@ -1,0 +1,222 @@
+package bus
+
+import (
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"synora/pkg/contract"
+)
+
+func TestBusACLRejectsSpoofAndWrongTarget(t *testing.T) {
+	server := NewServerWithConfig("test", ServerConfig{Now: func() time.Time { return time.Unix(1000, 0).UTC() }})
+
+	if err := validateMessage(contract.Message{Type: contract.EventVisionMotion, Kind: contract.KindEvent, Source: "core", Target: "core"}, "discovery"); err == nil {
+		t.Fatal("source spoof was accepted")
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "wrong-target", Type: contract.EventVisionMotion, Kind: contract.KindEvent,
+		Source: "discovery", Target: "actions", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "discovery"); err == nil || !strings.Contains(err.Error(), "not authorized") {
+		t.Fatalf("wrong target was accepted: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "unknown-type", Type: "privileged.inject", Kind: contract.KindEvent,
+		Source: "discovery", Target: "core", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "discovery"); err == nil {
+		t.Fatal("unknown producer/type combination was accepted")
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "test-envelope", Type: contract.EventValidationTestInference, Kind: contract.KindEvent,
+		Source: "api", Target: "core", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("authenticated API test envelope was rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "spoofed-test", Type: contract.EventValidationTestInference, Kind: contract.KindEvent,
+		Source: "discovery", Target: "core", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "discovery"); err == nil {
+		t.Fatal("Discovery was allowed to publish the test envelope")
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "api-runtime-health", Type: contract.RPCRuntimeHealth, Kind: contract.KindRPC,
+		Source: "api", Target: "runtime-manager", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("API runtime health request rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "runtime-health-response", Type: contract.RPCRuntimeHealth, Kind: contract.KindRPC,
+		Source: "runtime-manager", Target: "api", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "runtime-manager"); err != nil {
+		t.Fatalf("runtime health response rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "api-reset", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "api", Target: "core", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("API state reset request rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "core-reset-response", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "core", Target: "api", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "core"); err != nil {
+		t.Fatalf("Core state reset response rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "api-discovery-reset", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "api", Target: "discovery", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "api"); err != nil {
+		t.Fatalf("API Discovery reset request rejected by ACL: %v", err)
+	}
+	if err := server.authorizeMessage(contract.Message{
+		ID: "discovery-reset-response", Type: contract.RPCSystemResetState, Kind: contract.KindRPC,
+		Source: "discovery", Target: "api", Timestamp: time.Unix(1000, 0).UTC(),
+	}, "discovery"); err != nil {
+		t.Fatalf("Discovery state reset response rejected by ACL: %v", err)
+	}
+}
+
+func TestBusRejectsExpiredAndMutatedReplay(t *testing.T) {
+	now := time.Unix(1000, 0).UTC()
+	server := NewServerWithConfig("test", ServerConfig{Now: func() time.Time { return now }, ReplayWindow: time.Minute})
+
+	expired := contract.Message{
+		ID: "expired", Type: "health.check", Kind: contract.KindRPC,
+		Source: "discovery", Target: "core", Timestamp: now.Add(-2 * time.Minute),
+	}
+	if err := server.authorizeMessage(expired, "discovery"); err == nil || !strings.Contains(err.Error(), "timestamp") {
+		t.Fatalf("expired message was accepted: %v", err)
+	}
+
+	first := contract.Message{
+		ID: "same-id", Type: "health.check", Kind: contract.KindRPC,
+		Source: "discovery", Target: "core", Timestamp: now, Payload: []byte(`{"probe":"one"}`),
+	}
+	if err := server.authorizeMessage(first, "discovery"); err != nil {
+		t.Fatalf("first message rejected: %v", err)
+	}
+	mutated := first
+	mutated.Payload = []byte(`{"probe":"changed"}`)
+	if err := server.authorizeMessage(mutated, "discovery"); err == nil || !strings.Contains(err.Error(), "different payload") {
+		t.Fatalf("payload mutation was not rejected: %v", err)
+	}
+}
+
+func TestBusAuthenticatedNonceAndKeyRotation(t *testing.T) {
+	now := time.Unix(2000, 0).UTC()
+	current := AuthConfig{KeyID: "current", Secret: "current-secret"}
+	server := NewServerWithConfig("test", ServerConfig{Auth: current, Now: func() time.Time { return now }, ReplayWindow: time.Minute})
+
+	message := contract.Message{
+		ID: "auth-message", Type: "health.check", Kind: contract.KindRPC,
+		Source: "discovery", Target: "core", Timestamp: now, Payload: []byte(`{"probe":"one"}`),
+	}
+	authenticated, err := authenticateMessage(message, current, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.authorizeMessage(authenticated, "discovery"); err != nil {
+		t.Fatalf("authenticated message rejected: %v", err)
+	}
+	if err := server.authorizeMessage(authenticated, "discovery"); err == nil || !strings.Contains(err.Error(), "replayed") {
+		t.Fatalf("nonce replay was accepted: %v", err)
+	}
+
+	mutated := message
+	mutated.Payload = []byte(`{"probe":"changed"}`)
+	mutated.AuthNonce = authenticated.AuthNonce
+	mutated, err = authenticateMessage(mutated, current, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.authorizeMessage(mutated, "discovery"); err == nil || (!strings.Contains(err.Error(), "replayed") && !strings.Contains(err.Error(), "different payload")) {
+		t.Fatalf("changed payload with reused nonce was accepted: %v", err)
+	}
+
+	old := contract.Message{
+		ID: "old-key", Type: "health.check", Kind: contract.KindRPC,
+		Source: "discovery", Target: "core", Timestamp: now,
+	}
+	old, err = authenticateMessage(old, AuthConfig{KeyID: "old", Secret: "old-secret"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.authorizeMessage(old, "discovery"); err == nil || !strings.Contains(err.Error(), "credentials") {
+		t.Fatalf("old key was accepted after rotation: %v", err)
+	}
+}
+
+func TestBusAuthenticatedClientUsesCurrentKeyOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bus.sock")
+	cfg := AuthConfig{KeyID: "current", Secret: "current-secret"}
+	server := NewServerWithConfig(path, ServerConfig{Auth: cfg})
+	go func() { _ = server.Start() }()
+	waitFor(t, time.Second, func() bool {
+		_, err := os.Stat(path)
+		return err == nil
+	})
+	defer server.Close()
+
+	client, err := NewClientWithConfig(path, "discovery", ClientConfig{Auth: cfg})
+	if err != nil {
+		t.Fatalf("current key client failed to register: %v", err)
+	}
+	defer client.Close()
+
+	_, err = NewClientWithConfig(path, "core", ClientConfig{Auth: AuthConfig{KeyID: "old", Secret: "old-secret"}})
+	if err == nil {
+		t.Fatal("rotated-out key client registered")
+	}
+}
+
+func TestBusProcessIdentityDoesNotTrustSourceAlone(t *testing.T) {
+	if !processIdentityAllowed(peerCredential{pid: os.Getpid(), known: true}, "core") {
+		t.Fatal("current test process should be accepted by the hermetic identity rule")
+	}
+	if processIdentityAllowed(peerCredential{pid: 1, known: true}, "core") {
+		t.Fatal("unrelated process executable was accepted as core")
+	}
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	if !peerOwnedByProcess(left) {
+		t.Fatal("hermetic pipe identity should remain usable")
+	}
+}
+
+func TestSystemServicePeerIdentityAllowlistIsExplicit(t *testing.T) {
+	tests := []struct {
+		service    string
+		executable string
+	}{
+		{service: "actions", executable: "synora-actions"},
+		{service: "api", executable: "synora-api"},
+		{service: "core", executable: "synora-core"},
+		{service: "discovery", executable: "synora-discovery"},
+		{service: "runtime-manager", executable: "synora-runtime-manager"},
+	}
+	for _, test := range tests {
+		t.Run(test.service, func(t *testing.T) {
+			uid, ok := expectedServiceUID(test.service)
+			if !ok || !serviceIdentityAllowed(uid, test.service, test.executable) {
+				t.Fatalf("planned system service was not allowlisted: %#v uid=%d ok=%t", test, uid, ok)
+			}
+			if serviceIdentityAllowed(uid, test.service, "unrelated-process") {
+				t.Fatal("unrelated executable was accepted")
+			}
+			wrongUID := uid + 1
+			if uid == ^uint32(0) {
+				wrongUID = uid - 1
+			}
+			if serviceIdentityAllowed(wrongUID, test.service, test.executable) {
+				t.Fatal("wrong Unix identity was accepted")
+			}
+		})
+	}
+	if serviceIdentityAllowed(0, "arbitrary-service", "synora-actions") {
+		t.Fatal("arbitrary service was accepted")
+	}
+}

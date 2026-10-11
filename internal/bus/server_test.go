@@ -1,0 +1,126 @@
+package bus
+
+import (
+	"encoding/json"
+	"net"
+	"strings"
+	"testing"
+	"time"
+
+	"synora/pkg/contract"
+)
+
+func TestServerRoutesOnlyVisionEvidenceV1ToCore(t *testing.T) {
+	server := NewServer("net-pipe-test")
+	server.debug = true
+
+	coreConn, coreDecoder := registeredPipe(t, server, "core")
+	defer coreConn.Close()
+	discoveryConn, _ := registeredPipe(t, server, "discovery")
+	defer discoveryConn.Close()
+
+	msg := contract.Message{
+		Type:       contract.EventVisionEvidenceV1,
+		Kind:       contract.KindEvent,
+		Source:     "discovery",
+		SourceType: contract.SourceSystem,
+		Target:     "core",
+	}
+	if err := json.NewEncoder(discoveryConn).Encode(msg); err != nil {
+		t.Fatalf("send evidence event: %v", err)
+	}
+
+	gotCh := make(chan contract.Message, 1)
+	go func() {
+		var got contract.Message
+		if err := coreDecoder.Decode(&got); err == nil {
+			gotCh <- got
+		}
+	}()
+	select {
+	case got := <-gotCh:
+		if got.Type != contract.EventVisionEvidenceV1 || got.Source != "discovery" || got.Target != "core" {
+			t.Fatalf("unexpected routed message: %#v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("core did not receive Evidence V1")
+	}
+}
+
+func TestACLRejectsLegacyVisionAndClipContractsAtCoreBoundary(t *testing.T) {
+	legacy := []string{
+		contract.EventVisionSegmentReadyV1,
+		contract.EventVisionClipObservationV1,
+		contract.EventVisionClipSummaryV1,
+		contract.EventVisionEnrichmentV3,
+		contract.EventClipReady,
+		contract.EventClipFailed,
+	}
+	for _, eventType := range legacy {
+		t.Run(eventType, func(t *testing.T) {
+			if err := authorizeACL(contract.Message{Type: eventType, Kind: contract.KindEvent, Source: "discovery", Target: "core"}, "discovery", map[string]struct{}{"core": {}}); err == nil {
+				t.Fatalf("legacy contract %q was authorized to Core", eventType)
+			}
+		})
+	}
+}
+
+func TestValidateMessageRejectsSourceMismatch(t *testing.T) {
+	err := validateMessage(contract.Message{
+		Type:   contract.EventVisionMotion,
+		Kind:   contract.KindEvent,
+		Source: "cam_01",
+		Target: "core",
+	}, "vision")
+	if err == nil || !strings.Contains(err.Error(), "source mismatch") {
+		t.Fatalf("expected source mismatch, got %v", err)
+	}
+}
+
+func TestServerRejectsUnknownProducerService(t *testing.T) {
+	server := NewServer("net-pipe-test")
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	go server.handle(serverConn)
+	registration := contract.Message{Type: "bus.register", Kind: contract.KindCommand, Source: "spoofed-producer"}
+	if err := json.NewEncoder(clientConn).Encode(registration); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := server.getClient("spoofed-producer"); ok {
+			t.Fatal("unknown producer was registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func registeredPipe(t *testing.T, server *Server, service string) (net.Conn, *json.Decoder) {
+	t.Helper()
+	serverConn, clientConn := net.Pipe()
+	go server.handle(serverConn)
+	registration := contract.Message{
+		Type:   "bus.register",
+		Kind:   contract.KindCommand,
+		Source: service,
+	}
+	if err := json.NewEncoder(clientConn).Encode(registration); err != nil {
+		t.Fatalf("register %s: %v", service, err)
+	}
+	var ack contract.Message
+	if err := json.NewDecoder(clientConn).Decode(&ack); err != nil {
+		t.Fatalf("registration ACK %s: %v", service, err)
+	}
+	if ack.Type != "bus.registered" || ack.Target != service {
+		t.Fatalf("invalid registration ACK for %s: %#v", service, ack)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := server.getClient(service); ok {
+			return clientConn, json.NewDecoder(clientConn)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("service %s was not registered", service)
+	return nil, nil
+}

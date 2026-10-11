@@ -1,0 +1,225 @@
+{
+  "baseline": "synora-oem-h1-contract-compatibility/v1",
+  "scope": "Existing production boundary characterization; no new product semantics",
+  "contracts": [
+    {
+      "name": "Foundation event and entity records",
+      "owner": "pkg/contract",
+      "producer": "Vision, Discovery, and Core producers",
+      "consumer": "Bus, Discovery, Core, and persistence",
+      "encoding": "JSON; timestamps RFC3339Nano for typed contract records",
+      "version": "contract V1 (schema_version 1 where present)",
+      "fixtures": [
+        "pkg/contract/testdata/v1/event-current.json",
+        "pkg/contract/testdata/v1/resident-current.json"
+      ],
+      "validation": "Event/Resident Validate methods; identifiers and enum/status rules are contract-specific",
+      "unknown_fields": "encoding/json ignores unknown struct fields; custom Message decoder accepts its supported timestamp forms",
+      "compatibility": "Current V1 fixture round-trip is automated; synthetic internal/foundationv1 is excluded from production ownership",
+      "tests": [
+        "pkg/contract/v1_contract_test.go"
+      ]
+    },
+    {
+      "name": "Bus IPC Message",
+      "owner": "pkg/contract.Message; internal/bus transport",
+      "producer": "Bus clients and services",
+      "consumer": "Bus server and subscribers",
+      "encoding": "JSON line over local Unix socket",
+      "version": "message version string; V1 canonical contract fixture",
+      "fixtures": [
+        "pkg/contract/testdata/v1/message-current.json"
+      ],
+      "validation": "Message.Validate plus bus framing and authenticated envelope checks where configured",
+      "unknown_fields": "Ignored by custom typed decoder; payload remains RawMessage",
+      "compatibility": "Current fixture and custom timestamp forms have contract tests; full authenticated socket envelope matrix remains a gap",
+      "tests": [
+        "pkg/contract/v1_contract_test.go",
+        "internal/bus"
+      ]
+    },
+    {
+      "name": "Vision Go to Python worker request",
+      "owner": "internal/vision.Request and services/vision-worker/worker.py",
+      "producer": "Go Vision runtime",
+      "consumer": "Python Vision worker",
+      "encoding": "JSON line over local Unix socket",
+      "version": "operation names; protocol hello advertises synora.vision.v1",
+      "fixtures": [
+        "testdata/contract-baseline/vision/go-clip-request-v1.json"
+      ],
+      "validation": "Python operation/request checks; hello version and response correlation are validated in Go",
+      "unknown_fields": "Python dictionary access ignores additional keys; Go request uses encoding/json tags",
+      "compatibility": "Shared request is byte-semantically compared with Go serializer and consumed by dry-run Python worker",
+      "tests": [
+        "internal/vision/contract_baseline_test.go",
+        "services/vision-worker/tests/test_contract_baseline.py"
+      ]
+    },
+    {
+      "name": "Vision Python to Go worker response and event",
+      "owner": "services/vision-worker/core/events.py and internal/vision.WorkerResponse",
+      "producer": "Python Vision worker",
+      "consumer": "Go Vision runtime",
+      "encoding": "JSON line over local Unix socket",
+      "version": "event version 1; protocol synora.vision.v1",
+      "fixtures": [
+        "testdata/contract-baseline/vision/python-worker-response-v1.json",
+        "testdata/contract-baseline/vision/python-worker-empty-payload-v1.json"
+      ],
+      "validation": "Python EventBuilder restricts event names; Go decoder checks object, request_id, and events shape",
+      "unknown_fields": "Go models payload as map[string]any and preserves unknown event fields inside that payload; structurally valid unknown event names remain data at this boundary and are not mapped to commands",
+      "compatibility": "Python event payload, including nested fields, survives typed Go decode and actual Unix socket exchange; missing/null/empty payload behavior, malformed shapes, duplicate JSON keys, and absence of an explicit payload byte bound are characterized",
+      "tests": [
+        "internal/vision/contract_baseline_test.go",
+        "services/vision-worker/tests/test_contract_baseline.py"
+      ]
+    },
+    {
+      "name": "Vision evidence and segment records",
+      "owner": "pkg/contract VisionEvidenceV1 and SegmentReadyV1",
+      "producer": "Vision worker/runtime adapters",
+      "consumer": "Core, persistence, and API projections",
+      "encoding": "Versioned JSON records",
+      "version": "vision-evidence/v1; segment schema version as declared by its record",
+      "fixtures": [
+        "pkg/contract/testdata/v1/vision-evidence-v1.json",
+        "pkg/contract/testdata/v1/vision-evidence-face-candidate-v1.json",
+        "pkg/contract/testdata/vision-segment-ready-v1.json",
+        "testdata/contract-baseline/vision/segment-gap-v1.json",
+        "testdata/contract-baseline/vision/segment-continuity-reset-v1.json"
+      ],
+      "validation": "Typed Validate methods check schema, ranges, and enum values",
+      "unknown_fields": "Unknown JSON fields ignored by encoding/json; unknown enum values are contract-validated",
+      "compatibility": "Evidence and representative segment records are serializer/decode golden-tested; gap and continuity-reset payloads are emitted through the production segment publisher; decoder explicitly preserves allowlisted node_id before validation",
+      "tests": [
+        "pkg/contract/v1_contract_test.go",
+        "pkg/contract/vision_evidence_v1_test.go",
+        "pkg/contract/vision_segment_ready_test.go",
+        "pkg/contract/segment_contract_baseline_test.go",
+        "internal/vision/segment_publish_baseline_test.go"
+      ]
+    },
+    {
+      "name": "Camera observation",
+      "owner": "pkg/contract.CameraObservation",
+      "producer": "Discovery camera inventory",
+      "consumer": "Discovery runtime and Core",
+      "encoding": "JSON; RFC3339 timestamp; canonicalized capability strings",
+      "version": "schema_version 1",
+      "fixtures": [
+        "pkg/contract/testdata/camera-observation-v1.json",
+        "internal/discovery/runtime/testdata/camera-observation-event-v1.json"
+      ],
+      "validation": "Canonical trims/deduplicates/sorts strings; EnsureID provides stable identifier",
+      "unknown_fields": "encoding/json ignores unknown fields",
+      "compatibility": "Canonical camera observation round-trip, Discovery producer envelope, and online/offline/recovery event sequence are exercised with synthetic identifiers",
+      "tests": [
+        "pkg/contract/camera_contract_baseline_test.go",
+        "internal/discovery/runtime/device_contract_baseline_test.go"
+      ]
+    },
+    {
+      "name": "Cognitive snapshots and decisions",
+      "owner": "internal/cognitivecore",
+      "producer": "Core cognitive runtime and V3 adapter",
+      "consumer": "StateStore, Core APIs, and qualification harnesses",
+      "encoding": "Versioned JSON snapshots and decisions",
+      "version": "cognitive-snapshot/v1, /v2, /v3; cognitive-decision/v1 and V3 candidate",
+      "fixtures": [
+        "testdata/contract-baseline/persistence/state.json"
+      ],
+      "validation": "Version-specific Normalize/Validate; V1/V2/V3 normalization clamps or defaults selected values",
+      "unknown_fields": "encoding/json ignores unknown struct fields; unknown strings normalize or fail according to each version",
+      "compatibility": "V1 embedded persistence snapshot is golden-tested; dedicated independent V2/V3 snapshot goldens remain a coverage gap",
+      "tests": [
+        "internal/cognitivecore/contract_baseline_test.go",
+        "internal/cognitivecore/temporal_contract_baseline_test.go",
+        "internal/cognitivecore/snapshot_v2_test.go",
+        "internal/cognitivecore/snapshot_v3_test.go"
+      ]
+    },
+    {
+      "name": "Universal Store state, WAL, journal, and outbox",
+      "owner": "internal/foundation/statestore; cognitivecore typed owner",
+      "producer": "Core cognitive runtime",
+      "consumer": "Core restart/replay, history, and action dispatcher",
+      "encoding": "state.json materialized JSON plus newline-delimited journal.jsonl WAL",
+      "version": "universal-store/v1 and WAL record universal-store/v1",
+      "fixtures": [
+        "testdata/contract-baseline/persistence/state.json",
+        "testdata/contract-baseline/persistence/journal.jsonl"
+      ],
+      "validation": "OpenUniversalStore rejects corrupt JSON and unsupported state schema; replays WAL and checks bounds",
+      "unknown_fields": "encoding/json ignores extra fields; schema version is explicitly checked",
+      "compatibility": "Actual production serializer output is byte-compared with goldens, then opened in temporary directory; replay and outbox behavior asserted; Core temporal behavior is fixed-clock tested for event-time snapshot timestamps, arrival-order history, event-ID duplicate keys, epoch/sequence preservation, and missing received_at behavior",
+      "tests": [
+        "internal/cognitivecore/contract_baseline_test.go",
+        "internal/cognitivecore/store_persistence_test.go",
+        "internal/cognitivecore/temporal_contract_baseline_test.go"
+      ]
+    },
+    {
+      "name": "Action requests and results",
+      "owner": "pkg/contract and internal/automation; Core ActionRequest outbox adapter",
+      "producer": "Core and automation boundary",
+      "consumer": "Discovery action dispatcher and event subscribers",
+      "encoding": "Versioned JSON contract and typed JSON outbox record",
+      "version": "contract action V1; cognitive action request V1",
+      "fixtures": [
+        "pkg/contract/testdata/v1/action-request-current.json",
+        "pkg/contract/testdata/v1/action-result-current.json",
+        "testdata/contract-baseline/persistence/state.json"
+      ],
+      "validation": "pkg/contract validators; outbox request IDs are stable and store forces dry_run on commit",
+      "unknown_fields": "Unknown struct fields ignored; action/status strings are checked by owning validators",
+      "compatibility": "Public V1 fixtures round-trip and persisted outbox record is replay-tested",
+      "tests": [
+        "pkg/contract/v1_contract_test.go",
+        "internal/cognitivecore/contract_baseline_test.go"
+      ]
+    },
+    {
+      "name": "Device capability strings",
+      "owner": "internal/device validation, Discovery camera observations, Vision worker capability status, and abstract Automation action identifiers",
+      "producer": "Device and runtime capability reports",
+      "consumer": "Discovery capability gates and automation policy",
+      "encoding": "JSON string values in device/runtime records",
+      "version": "No standalone schema version; values are string identifiers",
+      "fixtures": [
+        "testdata/contract-baseline/device-capabilities-v1.json",
+        "testdata/device-harness/scenarios-v1.json"
+      ],
+      "validation": "Device configuration strings receive syntax/duplicate checks only; Vision runtime features report separate status; Automation action labels are not operation bindings",
+      "unknown_fields": "Unknown capability values are generally preserved as strings and denied unless explicitly supported",
+      "compatibility": "Source-backed identifier inventory is machine-readable; strings are preserved as labels; unsupported physical operations remain unimplemented or denied/dry-run",
+      "tests": [
+        "internal/automation/action_test.go",
+        "internal/discovery/runtime/device_contract_baseline_test.go",
+        "testkit/scenario_test.go"
+      ]
+    },
+    {
+      "name": "Discovery API request/response DTOs",
+      "owner": "internal/discovery WebAPI handlers",
+      "producer": "Web UI and API clients; resident service for gallery views",
+      "consumer": "Discovery command/event boundary and web clients",
+      "encoding": "HTTP JSON; endpoint version is /api/v1 where applicable",
+      "version": "API V1 path or endpoint-specific unversioned resident gallery routes",
+      "fixtures": [
+        "internal/discovery/testdata/resident-gallery-response-v1.json",
+        "internal/discovery/testdata/state-response-v1.json",
+        "internal/discovery/testdata/health-response-v1.json",
+        "internal/discovery/testdata/websocket-event-v1.json"
+      ],
+      "validation": "Handler-specific JSON parsing, request scope checks, and DTO contract rules",
+      "unknown_fields": "encoding/json decoders are generally permissive unless handler opts into stricter decoding",
+      "compatibility": "State, health, websocket/SSE event, and resident gallery status handlers have synthetic response goldens; incident data appears only as a state projection and no separate incident endpoint was found",
+      "tests": [
+        "internal/discovery/api_contract_baseline_test.go",
+        "internal/discovery/api_handler_baseline_test.go",
+        "internal/discovery/web_v1_test.go"
+      ]
+    }
+  ]
+}

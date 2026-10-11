@@ -1,0 +1,34 @@
+{
+  "schema_version": "synora.oem-device-capability-inventory/v1",
+  "scope": "Observed capability identifiers and mappings in the current source tree; not a device support or qualification claim",
+  "sources": [
+    {
+      "owner": "configs/devices.yaml",
+      "category": "configured device identifiers",
+      "identifiers": ["vision", "infrared", "motion_detection", "cry_detection", "microphone", "speaker", "tts", "wakeword"],
+      "representation": "string array on configured device record",
+      "validation": "internal/device accepts unique identifier strings matching ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "operation_mapping": "none; values are reported identifiers, not executable device operations",
+      "runtime_behavior": "Discovery camera observation canonicalizes strings; configured voice_relay identifiers have no implemented Voice command runtime"
+    },
+    {
+      "owner": "services/vision-worker hello capabilities",
+      "category": "Vision runtime capability status",
+      "identifiers": ["face_detection", "face_recognition", "object_detection", "weapon_detection", "fall_detection", "pose_enrichment_v3", "risk_object_enrichment_v3"],
+      "representation": "JSON object keyed by capability identifier, each value has runtime status/mode/reason fields",
+      "validation": "producer reports status; Go runtime transports worker hello data as runtime metadata",
+      "operation_mapping": "none; capabilities describe inference components and never authorize actuator actions",
+      "runtime_behavior": "availability varies by worker mode and qualified backends; dry_run explicitly reports inference as simulated or unavailable"
+    },
+    {
+      "owner": "internal/automation and cognitive action assessment",
+      "category": "abstract proposed action identifiers",
+      "identifiers": ["no_action", "notify", "record", "light", "lock", "siren", "request_review", "announce"],
+      "representation": "action string in policy/decision records",
+      "validation": "Automation receives an opaque capability map; dispatch is dry-run and does not invoke physical actuators",
+      "operation_mapping": "these are decision labels, not an implemented device capability-to-operation binding",
+      "runtime_behavior": "missing or unsupported capability is denied/unavailable; no production physical execution is established"
+    }
+  ],
+  "explicitly_not_claimed": ["ONVIF support", "Matter support", "qualified physical camera inference", "Voice runtime", "physical actuator authorization or execution", "exhaustive vendor/model support"]
+}

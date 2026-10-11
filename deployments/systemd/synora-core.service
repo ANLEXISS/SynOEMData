@@ -1,0 +1,29 @@
+[Unit]
+Description=Synora Core Service
+After=network.target synora-bus.service
+Requires=synora-bus.service
+
+[Service]
+Type=simple
+
+User=synora
+Group=synora
+
+ExecStart=/opt/synora/bin/synora-core
+
+Environment=SYNORA_LOG_PATH=/var/lib/synora/logs/events.log
+EnvironmentFile=-/etc/synora/synora-core.env
+
+Restart=always
+RestartSec=2
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0077
+
+NoNewPrivileges=true
+
+LimitNOFILE=4096
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

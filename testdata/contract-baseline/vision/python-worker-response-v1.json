@@ -1,0 +1,44 @@
+{
+  "events": [
+    {
+      "activation_id": "activation-h1",
+      "camera_id": "camera-h1",
+      "clip_id": "clip-h1",
+      "clip_index": 2,
+      "confidence": 0.0,
+      "device_id": "camera-h1",
+      "identity": "unknown",
+      "node_id": "node-h1",
+      "payload": {
+        "activation_id": "activation-h1",
+        "camera": "camera-h1",
+        "camera_id": "camera-h1",
+        "clip_id": "clip-h1",
+        "clip_index": 2,
+        "clip_path": "/tmp/synora-h1-fixture.mp4",
+        "confidence": 0.0,
+        "device_id": "camera-h1",
+        "identity": "unknown",
+        "node_id": "node-h1",
+        "persons": 1,
+        "scene": {
+          "fall": false,
+          "weapon": false,
+          "weapon_confidence": 0.0
+        },
+        "scene_id": "scene-h1",
+        "sequence_key": "sequence-h1",
+        "timestamp": 1700000000.25,
+        "track_id": "track-h1"
+      },
+      "scene_id": "scene-h1",
+      "sequence_key": "sequence-h1",
+      "source": "camera-h1",
+      "timestamp": 1700000000.25,
+      "track_id": "track-h1",
+      "type": "vision.unknown",
+      "version": 1
+    }
+  ],
+  "request_id": "h1-python-response-001"
+}

@@ -6,7 +6,7 @@
 
 ## Result
 
-The H1 baseline inventory indexes 11 production contract families in [`testdata/contract-baseline/index.json`](../../testdata/contract-baseline/index.json). Fixtures characterize the Go/Python Vision exchange, StateStore state and WAL, camera observations and availability, segment records, Discovery API responses, and device capability identifiers. Existing V1 goldens were reused rather than copied. Tests trace examples to their owning source, producer, consumer, format, version, validation behavior, unknown-field behavior, and compatibility requirement.
+The H1 baseline inventory indexes 11 production contract families in the SynoraOEM source file `testdata/contract-baseline/index.json`. Fixtures characterize the Go/Python Vision exchange, StateStore state and WAL, camera observations and availability, segment records, Discovery API responses, and device capability identifiers. Existing V1 goldens were reused rather than copied. Tests trace examples to their owning source, producer, consumer, format, version, validation behavior, unknown-field behavior, and compatibility requirement.
 
 The inventory preserves the seven existing logical modules. `internal/foundationv1` is treated as a synthetic reference only. The fixtures and tests introduce no dependency, production socket, service, device, migration, or storage-path changes. Store tests use temporary directories; the Vision worker runs in dry-run mode.
 

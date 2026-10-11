@@ -5,7 +5,7 @@
 
 ## Scope and method
 
-This inventory records capability identifiers that appear in installed device configuration, Vision worker hello metadata, and abstract cognitive/automation decisions. It distinguishes descriptive identifiers from executable operations. The machine-readable version is [`device-capabilities-v1.json`](../../testdata/contract-baseline/device-capabilities-v1.json).
+This inventory records capability identifiers that appear in installed device configuration, Vision worker hello metadata, and abstract cognitive/automation decisions. It distinguishes descriptive identifiers from executable operations. Its machine-readable companion is `testdata/contract-baseline/device-capabilities-v1.json` in the SynoraOEM source repository.
 
 The device configuration was inspected by capability blocks only. Network, firmware, credential, and device identity fields are outside this inventory. The three previously identified authentication/hash-bearing YAML templates are excluded from synchronization.
 

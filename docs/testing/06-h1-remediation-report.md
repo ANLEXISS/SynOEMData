@@ -14,7 +14,7 @@ Discovery API handler fixtures now cover `/api/v1/state`, `/api/v1/health`, the 
 
 Persistence characterization extends the existing V1 state/WAL serializer and replay baseline with V1/V2/V3 record references and fixed-clock temporal checks. Event time drives snapshot `CapturedAt`; missing event time falls back to injected `Core.Now`; `ReceivedAt` remains unset; history is in commit arrival order; the Store de-duplicates by event ID; epoch and sequence are carried as metadata and are not generally enforced by Core.
 
-The source-backed capability inventory is in [`05-device-capability-inventory.md`](../semantics/05-device-capability-inventory.md) and `testdata/contract-baseline/device-capabilities-v1.json`. It separates configured identifiers, Vision runtime feature status, and abstract action labels. It makes no physical support or qualification claim.
+The source-backed capability inventory is in [`05-device-capability-inventory.md`](../semantics/05-device-capability-inventory.md); its machine-readable companion is `testdata/contract-baseline/device-capabilities-v1.json` in the SynoraOEM source repository. It separates configured identifiers, Vision runtime feature status, and abstract action labels. It makes no physical support or qualification claim.
 
 ## Validation
 
@@ -42,5 +42,5 @@ The Vision worker response decoder has no configured payload byte limit; this re
 
 - [`05-h1-contract-compatibility-baseline.md`](05-h1-contract-compatibility-baseline.md)
 - [`07-h3-device-fault-harness.md`](07-h3-device-fault-harness.md)
-- [`testdata/contract-baseline/index.json`](../../testdata/contract-baseline/index.json)
-- [`testdata/contract-baseline/device-capabilities-v1.json`](../../testdata/contract-baseline/device-capabilities-v1.json)
+- Machine-readable contract index: `testdata/contract-baseline/index.json` in SynoraOEM.
+- Machine-readable capability inventory: `testdata/contract-baseline/device-capabilities-v1.json` in SynoraOEM.

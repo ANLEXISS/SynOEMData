@@ -1,16 +1,16 @@
 # I3 — Cognitive Dataset Engine Specification
 
-**Status:** SPECIFICATION ONLY / I3 NOT AUTHORIZED
-**Compatibility target:** Experimental `synora.observation-batch/v1` and `synora.state-encoder/v1`; use remains gated on I2 human approval
-**Implementation, data generation, and model training:** NOT AUTHORIZED by I2.1
+**Status:** IMPLEMENTED / TESTED / EXPERIMENTAL; HUMAN REVIEW REQUIRED
+**Compatibility target:** Experimental `synora.observation-batch/v1` and `synora.state-encoder/v1`, approved for research use after I2
+**Model training:** NOT RUN
 
 ## 1. Purpose and boundary
 
-I3 will define a deterministic synthetic data engine for testing whether later cognitive models generalize across homes, topologies, routines, sensor imperfections, and missing data. It must not embed rules that make labels trivially recoverable from a shared scenario identifier or leak hidden simulation state into model-visible observations.
+I3 defines a deterministic synthetic data engine for future research into generalization across homes, topologies, routines, sensor imperfections, and missing data. The current implementation is a small experimental simulator; it does not establish that those generalization questions have been answered. It keeps scenario identifiers and hidden targets outside model-input artifacts, but a formal statistical leakage audit has NOT BEEN PERFORMED.
 
 The engine is a research-data producer. It does not write Foundation state, connect to devices, modify Core, propose or authorize actions, or claim that synthetic performance predicts real-home performance. All generated homes and occupant profiles are synthetic, with no personal datasets, recordings, credentials, or production configuration.
 
-This specification assumes the current experimental State Encoder contract after I2.1: future `observed_at` values are representable with signed age. It does not approve that contract or implement a causal input assembler. I2 remains REVIEW REQUIRED and I3 remains NOT AUTHORIZED.
+This specification uses the experimental State Encoder contract approved for research use after I2.1: future `observed_at` values are represented with signed age. The I3 implementation adds an isolated synthetic availability selector; it does not create a runtime input assembler or change production behavior.
 
 ## 2. Dataset artifact pipeline
 
@@ -20,12 +20,12 @@ Each generated example must preserve these separately versioned artifacts and pr
 |---|---|---|
 | 1 | Physical simulation ground truth | Hidden world state: home layout, occupant locations, device state, routines, faults, and event sequence. Used only to generate observations and labels. Never passed to the encoder. |
 | 2 | Simulated source observations | Per-source emitted records with source clock, declared status/value, `observed_at`, source identity, and provenance. May include delay, drift, missingness, contradiction, and replay. |
-| 3 | Prediction-cutoff availability view | Records whose receipt/availability is at or before the example cutoff, selected by a future input assembler. Later-arriving records are excluded even if their event or observation timestamp is earlier. This stage prevents future-data leakage. |
-| 4 | State Encoder input | A batch built only from the availability view, with explicit `event_time`, actual `received_at`, stable declared identities, statuses, values, and relations. It must conform to the I2-accepted contract. |
+| 3 | Prediction-cutoff availability view | Separate artifact selected by receipt time. Later-arriving records are excluded even if their observation timestamp is earlier. |
+| 4 | State Encoder input | A batch built only from the availability view, with cutoff `event_time`, batch assembly time, selected identities, statuses, values, and relations. Per-record receipt times remain in the separate availability artifact and a model-input metadata wrapper because the frozen I2 observation contract has no per-observation receipt field. |
 | 5 | Encoded representation | Deterministic output from the State Encoder, retaining its schema/version and source references. Any later numerical projection must have its own version and fit only on training data. |
 | 6 | Prediction targets | Task-specific labels derived from hidden ground truth and a declared horizon/cutoff. Targets and their provenance are kept out of input artifacts. |
 
-Every artifact must carry dataset version, generator version, independent seed lineage, home/group ID, topology-template ID, scenario-family ID, time range, and parent artifact digests. Raw hidden truth and labels are stored separately from model inputs. Serialization must make accidental joins explicit and auditable.
+Each of the five persisted artifact files carries version/provenance and parent digests where applicable; the manifest and example index carry group, topology, scenario, split, cutoff, and seed lineage. Raw hidden truth and labels are stored separately from model inputs. The output directories are `ground-truth/`, `source-emissions/`, `availability/`, `model-inputs/`, and `targets/`.
 
 ## 3. Determinism and household generation
 
@@ -36,25 +36,27 @@ Every artifact must carry dataset version, generator version, independent seed l
 - Store generator configuration and label rules with the dataset version. Do not change label definitions while retaining the same version.
 - Keep values, units, categories, source identity, declared status, and event/observation/receipt time distinct. Never convert unknown to false/zero or infer missing facts.
 
-## 4. Causal cutoff contrac
+**Current generator limit:** It uses six fixed directed graph templates with template-specific room counts. It does not vary occupant identities/counts, device capabilities, routine parameters beyond a small synthetic deviation, or broad graph families as extensively as the specification above describes. Treat the requirements in this section as design goals, not as completed behavior; see the implementation report.
 
-The input assembler is a separate future component and is **NOT IMPLEMENTED**. Its specification must be completed before training or runtime examples are produced:
+## 4. Causal cutoff contract
+
+The research-only generator implements availability selection by each emission's receipt time. This is not a production or runtime assembler:
 
 1. Define the prediction cutoff `c` in a declared clock domain.
 2. Include a record only if its availability/receipt time is at or before `c`; event time or source `observed_at` alone does not prove availability.
-3. Preserve original `event_time`, `observed_at`, and `received_at` in the selected encoder input. Do not rewrite a future source timestamp to fit the cutoff.
+3. Preserve original observation and receipt times in the selected availability record. The batch event time is the cutoff and its batch received time is the assembly time; per-emission receipt times are carried outside the frozen encoder observation fields.
 4. Treat source clock drift as a property of the declared source clock. Keep the true clock offset/drift in hidden generation metadata; expose only the emitted source timestamp and permitted provenance to the model.
 5. A record received after `c` must not enter the example, even if replayed or backdated. A record received by `c` with `observed_at > event_time` can enter and carries negative signed age under the I2.1 encoder decision.
 6. Derive targets only from ground truth after `c`, over a declared horizon. No target values, future relations, future inventory, or post-cutoff status may appear in input artifacts.
 7. Include tests that vary receipt delay and cutoff while holding ground truth fixed, proving late records disappear from model input and labels remain isolated.
 
-This contract separates **data availability/causal selection** from encoder translation and from model temporal interpretation. I2.1 implements only translation; I3 implementation remains unauthorized.
+This contract separates **data availability/causal selection** from encoder translation and from model temporal interpretation. The I3 code implements synthetic selection and translation only; no model temporal reasoning is claimed.
 
 ## 5. Splits, leakage, and evaluation data
 
-- Split by whole synthetic home groups. All windows, observations, repeats, and augmentations from a home belong to one split.
+- Split by whole synthetic home groups and topology families. The current catalog contains six fixed directed ring, chain, and star graph templates; repeated homes within one family are graph-isomorphic with disjoint IDs. It is not a broad topology distribution.
 - For unseen-home and unseen-topology evaluation, hold out topology templates and generation families as well as home IDs. Do not let near-isomorphic graph variants cross splits where the evaluation claims topology generalization.
-- Hold out scenario templates/families for at least one evaluation slice. A scenario code, seed, file order, entity ID, or provenance string must not reveal the target.
+- Hold out five scenario templates from training; all templates appear in validation/test. Scenario names, split labels, and targets are outside model-input files. A formal statistical leakage audit has NOT BEEN PERFORMED; see the implementation report for observable cues and limitations.
 - Fit numeric normalization, category vocabularies, entity mappings, and any learned preprocessing on training homes only. Freeze and version those artifacts before validation/test use.
 - Keep train, validation, and test home groups disjoint. Record counts and per-task class/value distributions for each split; do not rebalance evaluation sets after inspecting model errors.
 - Report simple persistence/last-state, frequency, and topology-independent baselines alongside learned models. A synthetic score is evidence only for the declared synthetic distribution.
@@ -72,8 +74,12 @@ This contract separates **data availability/causal selection** from encoder tran
 
 All tasks require explicit label provenance, label availability time, cutoff, horizon, eligibility, missing-target policy, and evaluation unit. No performance result is claimed or model trained by this specification.
 
-## 7. Data quality and acceptance gates for future I3 implementation
+## 7. Data quality and acceptance gates
 
-Before a future I3 execution is authorized, its implementation plan must define and test: reproducibility from seeds; artifact schema/version validation; causal-cutoff enforcement; split disjointness; target/input separation; missingness and conflict provenance; clock-drift generation; distribution reports; duplicate detection; resource caps; and deterministic fixtures for every scenario family. Human review must inspect representative input/target pairs from every split. I3 acceptance must not imply I4 authorization.
+The initial implementation tests reproducibility, artifact digests and parent links, causal-cutoff enforcement, home/topology/scenario split boundaries, target/input separation, missingness/conflict preservation, clock-drift generation, class counts, duplicate identifiers, resource caps, and deterministic scenario fixtures. It does not yet provide human-reviewed examples from every split, a formal leakage audit, model baselines, model metrics, or full physical scenario fidelity. I3 review does not imply I4 authorization.
 
-**Current state:** Specification prepared. Dataset engine, assembler, generated dataset, labels, training, and evaluation are NOT_IMPLEMENTED and NOT_AUTHORIZED.
+**Current state:** The isolated research dataset engine and generator are implemented and tested. Generated datasets are synthetic and experimental. Model training and evaluation are NOT RUN. See `I3-IMPLEMENTATION-REPORT.md`. I3 remains REVIEW REQUIRED and is not approved.
+
+## I3.3 integration boundary and deferred data semantics
+
+I3.3 consumes the existing versioned I2 State Encoder contract through neutral Event and Topo-Temporal envelopes. It does not modify this dataset engine, its generated artifacts, labels, or scenario catalog. By owner priority override, I3.1 qualification (including Task A/B target and timing semantics), I3.2 grammar/dataset generation, scenario diversification, and leakage qualification remain DEFERRED and are not prerequisites for installing the structural I3.3 contracts. No semantic mappings were inferred. The hybrid package has no training or neural inference and makes no claim about dataset quality or predictive performance. See the I3.3 architecture and implementation reports; I3.3 remains REVIEW REQUIRED.

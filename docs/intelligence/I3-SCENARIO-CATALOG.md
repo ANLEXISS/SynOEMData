@@ -1,10 +1,10 @@
 # I3 — Synthetic Scenario Catalog
 
-**Status:** SPECIFICATION ONLY / I3 NOT AUTHORIZED
-**Contract target:** Experimental I2 v1 after I2 review; see `I3-DATASET-ENGINE-SPECIFICATION.md`
-**Scenarios implemented or generated:** NONE
+**Status:** IMPLEMENTED / TESTED / EXPERIMENTAL; HUMAN REVIEW REQUIRED
+**Contract target:** Experimental I2 v1 approved for research use; see `I3-DATASET-ENGINE-SPECIFICATION.md`
+**Scenario stimuli generated:** 20 synthetic templates; physical fidelity varies and is limited
 
-Each scenario family must be instantiated across independently seeded homes, routines, source conditions, and topology variants. “Observable” means records available at the prediction cutoff after the future availability assembler selects them. Hidden simulation truth and future labels stay outside encoder input. The State Encoder preserves supplied values, statuses, identities, directed relations, and timestamps; it does not infer scenario meaning.
+The engine instantiates scenario stimuli across seeded homes and topology families. “Observable” means records available at the prediction cutoff after receipt-time selection. Hidden simulation truth and future labels stay outside model-input files. The State Encoder preserves supplied values, statuses, identities, directed relations, and timestamps; it does not infer scenario meaning. These are compact test fixtures, not complete physical simulations of all twenty cases. See `I3-IMPLEMENTATION-REPORT.md` for the implemented stimulus and known limits for each task.
 
 | ID / scenario | Synthetic ground truth | Observable input / hidden information | Temporal structure | Expected labels / encoder requirements | Leakage risks / evaluation |
 |---|---|---|---|---|---|
@@ -39,4 +39,4 @@ Each scenario family must be instantiated across independently seeded homes, rou
 - Report per-task class/value distributions, home/topology group splits, simple baselines, and metrics by scenario family. No result is implied by this catalog.
 - “Anomaly,” “inconsistency,” “device malfunction,” “intrusion,” “danger,” and “authorization” are separate concepts. These scenarios may support future targets; they do not equate the labels.
 
-**Current state:** All twenty entries are specifications. No simulator, scenario generator, dataset, labels, model head, or training job is implemented or authorized.
+**Current state:** All twenty templates produce synthetic stimuli and labels in the experimental dataset engine. No model head or training/evaluation job is implemented. I3 remains REVIEW REQUIRED; this status does not authorize I4.

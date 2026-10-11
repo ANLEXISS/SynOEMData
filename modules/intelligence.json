@@ -1,7 +1,7 @@
 {
   "id": "synora.intelligence",
   "version": "0.1.0",
-  "description": "Topology and resident configuration plus cognitive processing. Cognitive Core owns orchestration; Intelligence owns the versioned state encoder and CPU MLP inference adapters over Core contracts.",
+  "description": "Topology and resident configuration plus cognitive processing. Cognitive Core owns the production orchestration and authorization path; Intelligence owns the versioned state encoder, CPU MLP adapters, dataset engine, and isolated experimental hybrid architecture contracts.",
   "domain": "intelligence",
   "required_capabilities": [
     "synora.contracts/v1",
@@ -14,7 +14,9 @@
   "optional_dependencies": [],
   "provided_interfaces": [
     "synora.intelligence.topology/v1",
-    "synora.intelligence.state-encoder/v1"
+    "synora.intelligence.state-encoder/v1",
+    "synora.intelligence.dataset-engine/v1",
+    "synora.intelligence.hybrid-architecture/v1"
   ],
   "consumed_interfaces": [
     "synora.contracts/v1",
@@ -24,7 +26,9 @@
   "state_ownership": [
     "topology and resident configuration",
     "cognitive processing and snapshot projection algorithms",
-    "versioned structured observation validation and encoding"
+    "versioned structured observation validation and encoding",
+    "deterministic synthetic cognitive dataset generation, causal cutoff selection, and separated research artifacts",
+    "model-independent Triple-MLP branch contracts and isolated experimental representation orchestration"
   ],
   "resource_requirements": [
     "CPU",
@@ -35,6 +39,8 @@
     "internal/intelligence/topology",
     "internal/intelligence/mlp",
     "internal/intelligence/stateencoder",
-    "internal/cognitivecore"
+    "internal/cognitivecore",
+    "internal/intelligence/datasetengine",
+    "internal/intelligence/hybrid"
   ]
 }

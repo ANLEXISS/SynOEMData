@@ -83,3 +83,7 @@ I1 proposes task heads for the first three tasks. It does not select adapters, e
 ## Compatibility and safety boundary
 
 I1 adds no production behavior, API, event, persistence schema, model manifest, or runtime dependency. The research script consumes only synthetic triples. Existing CPU model bundles and fixed V1/V2/V3 encoders are not modified or replaced. No real household, camera, identity, biometric, or supplier data is used. Outputs remain experimental predictions; Core authorization, Foundation state, and dry-run action behavior are unchanged.
+
+## I3.3 structural architecture status (2026-10-11)
+
+The later I3.3 milestone installs model-independent branch, lifecycle, representation, fusion, and output contracts in `internal/intelligence/hybrid`. This is an experimental architecture skeleton only: deterministic test fixtures are not trained models, the pipeline does not invoke cognitive heads, and no inference result is produced. Its structural fusion preserves branch representations separately and does not concatenate or learn cross-branch weights. The I1 research findings and earlier architecture proposal remain historical; this section does not revise their results. See `I3.3-TRIPLE-MLP-ARCHITECTURE.md` and `I3.3-IMPLEMENTATION-REPORT.md` for current implementation scope and review status.

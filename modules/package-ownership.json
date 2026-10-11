@@ -190,6 +190,16 @@
       "prefix": "synora/internal/foundation/statestore",
       "module": "synora.foundation",
       "recursive": true
+    },
+    {
+      "prefix": "synora/internal/intelligence/datasetengine",
+      "module": "synora.intelligence",
+      "recursive": true
+    },
+    {
+      "prefix": "synora/internal/intelligence/hybrid",
+      "module": "synora.intelligence",
+      "recursive": true
     }
   ]
 }

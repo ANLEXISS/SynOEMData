@@ -7,7 +7,7 @@ SHELL := /usr/bin/env bash
 	build-bootstrap-config install-bootstrap-config generate-version install-version install-model-manifest build-boot-healthcheck install-boot-healthcheck
 
 .PHONY: test architecture-check test-central-v1 test-camera-mock qualify-cognitive-v1 qualify-cognitive-v3 verify-rtmpose-clip cognitive-runtime-benchmark-v1
-.PHONY: test-contract-baseline test-device-harness test-semantic-foundation
+.PHONY: test-contract-baseline test-device-harness test-semantic-foundation test-dataset-engine
 
 CENTRAL_E2E_MANIFEST ?= testdata/central-e2e-v1/manifest.json
 CENTRAL_E2E_OUT ?= $(if $(OUT),$(OUT),/tmp/synora-central-e2e-v1.json)
@@ -93,6 +93,7 @@ help:
 		'  make test                  Run the central harness, Go/Python tests and contract checks' \
 		'  make test-contract-baseline Run deterministic Go/Python contract compatibility fixtures' \
 		'  make test-device-harness    Run shared device/fault scenarios and module boundary tests' \
+		'  make test-dataset-engine    Run deterministic I3 dataset generation checks' \
 		'  make test-semantic-foundation Run both contract baseline and device harness' \
 		'  make test-central-v1       Run the single hermetic Core/Store/Discovery/MLP E2E harness' \
 		'  make test-camera-mock      Build and run the native C++ camera/mock tests' \
@@ -184,6 +185,10 @@ test-device-harness:
 	PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 timeout 120s $(PYTHON) -m unittest discover -s services/vision-worker/tests -p 'test_device_harness.py'
 
 test-semantic-foundation: test-contract-baseline test-device-harness
+
+# Hardware-free deterministic I3 data generation and artifact isolation checks.
+test-dataset-engine:
+	GOCACHE=$(GOCACHE) "$(GO)" test -count=1 -timeout=2m -p 1 ./internal/intelligence/datasetengine ./cmd/synora-dataset-generate
 
 qualify-cognitive-v1: check-go
 	@echo "V1 qualification is the central hermetic suite; no real clip or legacy replay is used."

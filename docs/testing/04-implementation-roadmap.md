@@ -18,3 +18,6 @@ Start with **H1: fixture inventory and characterization tests**. It has low prod
 
 Do not start with a universal event payload or a full user automation language. Keep new concepts typed, versioned and narrowly scoped; preserve the seven module domains; treat stored data migration as a separate deliverable with rollback tests.
 
+## H1 completion
+
+H1 is validated. The current production contract families, shared Vision worker fixtures, representative API and camera goldens, and actual `universal-store/v1` state/WAL serializer output are indexed in `testdata/contract-baseline/index.json`. The repeatable entrypoint is `make test-contract-baseline`. See [`05-h1-contract-compatibility-baseline.md`](05-h1-contract-compatibility-baseline.md) for validation results and remaining gaps. H2 remains a proposal and compatibility spike; no new semantic envelope has been implemented.

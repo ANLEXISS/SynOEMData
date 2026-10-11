@@ -77,6 +77,7 @@ docs/testing/01-existing-harness-audit.md
 docs/testing/02-module-harness-specification.md
 docs/testing/03-cross-module-scenario-catalog.md
 docs/testing/04-implementation-roadmap.md
+docs/testing/05-h1-contract-compatibility-baseline.md
 docs/universal-store-v1.md
 docs/v1-store-authority.md
 docs/vision-evidence-v1.md

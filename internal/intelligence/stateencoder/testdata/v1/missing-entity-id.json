@@ -1,0 +1,11 @@
+{
+  "schema_version": "synora.observation-batch/v1",
+  "event_time": "2026-01-01T12:00:00Z",
+  "received_at": "2026-01-01T12:00:03Z",
+  "entities": [{"id": "door-front", "kind": "device"}],
+  "observations": [{
+    "entity": {"id": "door-front", "kind": "device"},
+    "attribute": {"namespace": "access", "name": "contact", "value_type": "boolean"},
+    "status": "unknown"
+  }]
+}

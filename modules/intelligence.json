@@ -1,7 +1,7 @@
 {
   "id": "synora.intelligence",
   "version": "0.1.0",
-  "description": "Topology and resident configuration plus cognitive processing. Cognitive Core owns orchestration; the intelligence/mlp package owns the CPU bundle inference adapters over Core contracts.",
+  "description": "Topology and resident configuration plus cognitive processing. Cognitive Core owns orchestration; Intelligence owns the versioned state encoder and CPU MLP inference adapters over Core contracts.",
   "domain": "intelligence",
   "required_capabilities": [
     "synora.contracts/v1",
@@ -13,7 +13,8 @@
   ],
   "optional_dependencies": [],
   "provided_interfaces": [
-    "synora.intelligence.topology/v1"
+    "synora.intelligence.topology/v1",
+    "synora.intelligence.state-encoder/v1"
   ],
   "consumed_interfaces": [
     "synora.contracts/v1",
@@ -22,7 +23,8 @@
   "configuration_schema": null,
   "state_ownership": [
     "topology and resident configuration",
-    "cognitive processing and snapshot projection algorithms"
+    "cognitive processing and snapshot projection algorithms",
+    "versioned structured observation validation and encoding"
   ],
   "resource_requirements": [
     "CPU",
@@ -32,6 +34,7 @@
   "source_packages": [
     "internal/intelligence/topology",
     "internal/intelligence/mlp",
+    "internal/intelligence/stateencoder",
     "internal/cognitivecore"
   ]
 }

@@ -7,9 +7,9 @@ SynOEMData is the permanent documentation repository for approved SynoraOEM repo
 - Default branch: `main` (the source repository was empty before initial publication)
 - Source tree: `/home/rock/SynoraOEM/docs/`
 
-## After each validated milestone
+## After explicit milestone approval and publication authorization
 
-Complete implementation and required validation first. Update the relevant milestone report with actual results, including failures, pending work, and hardware limitations. Review all new/changed Markdown for credentials, private or personal data, recordings, runtime state, and supplier-confidential information. Then run:
+First complete implementation and required validation, then update the relevant milestone report with actual results, failures, pending work, and hardware limitations. Keep the report local and mark it `REVIEW REQUIRED` until the owner explicitly approves the milestone. Obtain separate explicit authorization before committing source changes, before pushing source changes, and before publishing documentation. Approval alone does not authorize any of those actions. Only after publication authorization, review all new/changed Markdown for credentials, private or personal data, recordings, runtime state, and supplier-confidential information, and run:
 
 ```sh
 cd /home/rock/SynoraOEM
@@ -18,7 +18,7 @@ tools/sync-documentation.sh --validated
 
 The script checks SSH-based repository access, fast-forwards the local documentation clone, scans approved Markdown for common credential formats, copies the source `docs/` hierarchy without deleting destination files, commits only synchronized reports and pushes the selected branch. It does not use or change global Git settings. It refuses to publish if the documentation worktree has unrelated changes, detects unowned destination conflicts, and preserves a local commit with `SYNC=PENDING` if the push fails. Set `SYNOEMDATA_WORKTREE` or `SYNOEMDATA_BRANCH` only when a different local checkout or branch is intentionally required.
 
-The script requires `--validated` as a human/workflow gate; it does not infer that tests passed. The person running it must ensure the reports accurately reflect completed validation.
+The script's `--validated` flag confirms only that the operator asserts validation is complete. It does not enforce or infer milestone approval or publication authorization. Never run it automatically at the end of validation; require both explicit owner gates first.
 
 ## Initial security exclusions
 

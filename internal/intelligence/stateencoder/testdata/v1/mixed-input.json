@@ -1,0 +1,79 @@
+{
+  "schema_version": "synora.observation-batch/v1",
+  "event_time": "2026-01-01T12:00:00Z",
+  "received_at": "2026-01-01T12:00:03Z",
+  "entities": [
+    {"id": "building:home", "kind": "building"},
+    {"id": "room:entry", "kind": "room"},
+    {"id": "device:door-front", "kind": "device"},
+    {"id": "device:motion-entry", "kind": "device"}
+  ],
+  "observations": [
+    {
+      "entity": {"id": "device:door-front", "kind": "device"},
+      "attribute": {"namespace": "environment", "name": "temperature", "value_type": "number", "unit": "Cel"},
+      "status": "observed",
+      "value": {"number": 21.5},
+      "source": {"id": "integration:zigbee", "kind": "sensor"},
+      "provenance": "device_report",
+      "evidence_ref": "evidence:temperature-1",
+      "observed_at": "2026-01-01T11:59:58Z"
+    },
+    {
+      "entity": {"id": "device:door-front", "kind": "device"},
+      "attribute": {"namespace": "access", "name": "contact", "value_type": "boolean"},
+      "status": "unknown"
+    },
+    {
+      "entity": {"id": "device:door-front", "kind": "device"},
+      "attribute": {"namespace": "power", "name": "battery", "value_type": "number", "unit": "percent"},
+      "status": "unavailable"
+    },
+    {
+      "entity": {"id": "device:door-front", "kind": "device"},
+      "attribute": {"namespace": "device", "name": "mode", "value_type": "category"},
+      "status": "unsupported"
+    },
+    {
+      "entity": {"id": "device:door-front", "kind": "device"},
+      "attribute": {"namespace": "environment", "name": "humidity", "value_type": "number", "unit": "percent"},
+      "status": "stale",
+      "value": {"number": 61},
+      "source": {"id": "integration:zigbee", "kind": "sensor"},
+      "observed_at": "2026-01-01T11:00:00Z"
+    },
+    {
+      "entity": {"id": "device:door-front", "kind": "device"},
+      "attribute": {"namespace": "access", "name": "state", "value_type": "category"},
+      "status": "conflicting",
+      "value": {"category": "open"},
+      "source": {"id": "integration:zigbee", "kind": "sensor"},
+      "observed_at": "2026-01-01T12:00:00Z"
+    },
+    {
+      "entity": {"id": "device:door-front", "kind": "device"},
+      "attribute": {"namespace": "access", "name": "state", "value_type": "category"},
+      "status": "conflicting",
+      "value": {"category": "closed"},
+      "source": {"id": "integration:manual", "kind": "operator"},
+      "observed_at": "2026-01-01T12:00:00Z"
+    },
+    {
+      "entity": {"id": "device:motion-entry", "kind": "device"},
+      "attribute": {"namespace": "motion", "name": "occupancy", "value_type": "category"},
+      "status": "absent"
+    },
+    {
+      "entity": {"id": "device:motion-entry", "kind": "device"},
+      "attribute": {"namespace": "motion", "name": "detected", "value_type": "boolean"},
+      "status": "observed",
+      "value": {"boolean": true},
+      "source": {"id": "integration:zigbee", "kind": "sensor"},
+      "observed_at": "2026-01-01T11:59:59Z"
+    }
+  ],
+  "relations": [
+    {"subject": "room:entry", "kind": "contains", "object": "device:door-front", "source": {"id": "topology:configuration", "kind": "configuration"}},
+    {"subject": "room:entry", "kind": "contains", "object": "device:motion-entry", "source": {"id": "topology:configuration", "kind": "configuration"}}
+  ]
+}

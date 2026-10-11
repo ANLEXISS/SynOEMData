@@ -22,6 +22,11 @@
       "recursive": true
     },
     {
+      "prefix": "synora/internal/intelligence/stateencoder",
+      "module": "synora.intelligence",
+      "recursive": true
+    },
+    {
       "prefix": "synora/internal/cognitivecore",
       "module": "synora.intelligence",
       "recursive": true

@@ -226,6 +226,14 @@ def validate_packages(
     if mlp_package in graph[core_package]:
         fail("Cognitive Core must not import the concrete Intelligence MLP adapter")
 
+    state_encoder_package = "synora/internal/intelligence/stateencoder"
+    if assignments.get(state_encoder_package) != "synora.intelligence":
+        fail("synora/internal/intelligence/stateencoder must be Intelligence-owned")
+    if state_encoder_package not in graph:
+        fail("Intelligence state encoder package is missing")
+    if any(item.startswith(("synora/internal/", "synora/pkg/")) for item in graph[state_encoder_package]):
+        fail("Intelligence state encoder must remain isolated from production contracts and runtime packages")
+
     automation_package = "synora/internal/automation"
     integration_package = "synora/internal/discovery"
     if assignments.get(automation_package) != "synora.automation":

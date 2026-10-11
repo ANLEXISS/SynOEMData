@@ -1,6 +1,6 @@
 # I1 State Representation Design Proposal
 
-**Status:** I1 PROPOSAL; I2 V1 IMPLEMENTED / EXPERIMENTAL
+**Status:** I1 PROPOSAL; I2 V1 IMPLEMENTED / TESTED / EXPERIMENTAL; HUMAN APPROVED 2026-10-11
 
 **Milestone boundary:** The approved I2 implementation is an isolated versioned encoder. This does not replace existing CognitiveSnapshot V1/V2/V3 contracts or integrate a new encoder into runtime inference.
 
@@ -78,7 +78,7 @@ Input schema mismatch, unsupported value, missing identity, invalid timestamp, u
 |---|---|
 | Canonical entity and attribute references | Namespaced opaque entity/source IDs and namespaced attribute names are validated. Mapping existing Foundation IDs into this namespace is deferred; I2 adds no adapter. |
 | Input fields and compatibility | `synora.observation-batch/v1` is a typed Go contract. The encoder rejects other declared schema versions. JSON decoding policy for unknown fields and future schema migration is deferred to a future adapter. |
-| Time and freshness | Event time and receive time are required and distinct. Observation age is computed from event time and observation time. Future observation times fail. No stale threshold or time source precedence is inferred. |
+| Time and freshness | Event time, observation time, and receive time are preserved separately. Signed age is `event_time - observed_at`; future observations produce negative age and are not rejected for temporal plausibility. No skew correction or freshness threshold is inferred. |
 | Values, units, categories, bounds | Number, boolean, and category are supported. Numeric values require a unit token; no unit conversion or category vocabulary is introduced. Fixed per-batch limits are recorded below. |
 | Conflicting sources and confidence | Source-specific records remain separate; conflict status is explicit and no source wins automatically. Confidence is omitted pending semantics and calibration. |
 | Graph relations and coordinates | Directed typed relations and optional validity intervals are preserved. Coordinate frames, geometry, topology inference, and graph feature generation are deferred. |
@@ -94,10 +94,24 @@ The implementation lives in `internal/intelligence/stateencoder` and provides `s
 - Entity and source IDs use a namespaced opaque string form; entity kind, attribute namespace/name, and source kind are validated independently. Attribute names and source IDs remain symbolic metadata rather than being hashed into numeric values.
 - Supported values are finite numbers with an explicit unit token, booleans, and categories. Numeric values are carried as float32 in the declared unit without conversion. Categories are preserved as strings; I2 does not create or infer category vocabularies or ordinal codes.
 - Every observation retains one explicit status channel: observed, unknown, unavailable, unsupported, stale, conflicting, or absent. Unknown/unavailable/unsupported/absent cannot carry a value. Stale and conflicting records may retain a source-specific value with its timestamp. The encoder does not coerce missing values, infer conflicts, or choose a winning source.
-- Event time and received time are required and kept separate. An observation timestamp is required when an observed value is supplied. Age is derived as event time minus observation time; future observation times are rejected. No stale threshold is inferred and no time is synthesized.
+- Event time and receive time are required and kept separate. An observation timestamp is required when a value is retained. All three timestamps are preserved as declared, including offsets. Age is signed `event_time - observed_at`; future timestamps produce negative age and are accepted. No skew correction, freshness threshold, or status is inferred.
 - Relations retain caller-supplied direction, kind, source, and optional validity bounds. The encoder does not infer topology or turn edges into learned graph features.
 - Limits are 512 entities, 2,048 observations, and 2,048 relations per batch. Identifiers are limited to 192 bytes; provenance/evidence references are limited to 256 bytes. Exceeding a limit is an error; inputs are never silently truncated.
-- Entity, observation, and relation ordering is canonicalized. Duplicate entity IDs, duplicate entity/attribute/source observations, duplicate relations, undeclared relation endpoints, malformed tagged values, and unsupported schema versions are rejected.
+- Entity, observation, and relation ordering is canonicalized. Duplicate entity IDs, exact duplicate observation records, exact duplicate relations, undeclared relation endpoints, malformed tagged values, and unsupported schema versions are rejected. Same-attribute observations from different sources or at different times remain separate.
 - The encoded result contains a versioned 14-name feature contract: seven status channels, three declared-type channels, typed value fields, and an age field. It is a structured encoder output, not a fixed-size, vocabulary-complete model vector. Unit normalization, category embeddings/vocabularies, confidence calibration, source conflict policy, and a production adapter remain unresolved and are not claimed by I2.
 
-Deterministic fixtures under `internal/intelligence/stateencoder/testdata/v1/` cover all seven statuses, typed values, two source-specific conflict candidates, separate event/received times, directed relations, and invalid identity input. Package tests also cover stable ordering, no silent defaulting, future timestamps, duplicate inputs, and overflow rejection. I2 remains experimental until its review report records validation and owner acceptance.
+Deterministic fixtures under `internal/intelligence/stateencoder/testdata/v1/` cover all seven statuses, typed values, two source-specific conflict candidates, separate event/received times, directed relations, and invalid identity input. Package tests cover stable ordering, no silent defaulting, signed temporal deltas, timestamp representation, duplicate records, cycles, numeric boundaries, resource limits, and overflow rejection. See `ADR-STATE-ENCODER-RESPONSIBILITY.md` for the owner decision and responsibility boundaries.
+
+## State Encoder responsibility boundary
+
+The State Encoder performs technical schema validation and deterministic representation transformations only. It does not decide truth, reliability, plausibility, freshness, suspiciousness, relevance, source preference, conflict resolution, behavioral normality, or action authorization. It preserves the seven input statuses and never derives a status from age or value. Foundation/StateStore owns authoritative persistence and event history; cognitive models interpret temporal and topological patterns; deterministic Core policies own authorization and safe execution.
+
+The encoder's representation does not itself prevent future-data leakage. A future training/runtime input assembler must include only records available by the prediction cutoff, based on actual receipt/availability, while retaining the original event, observation, and receipt times. That assembler is deferred and not implemented in I2.1.
+
+## Numeric and technical conversion limits
+
+Finite numbers are narrowed to float32 in the declared unit. Values beyond float32 range, non-finite inputs, and non-zero values that underflow to zero are rejected before output. Representable values may round; float32 has a 24-bit significand and cannot preserve all float64 precision. No unit conversion, scaling, or categorical embedding occurs. An unsupported value type, malformed tagged union, invalid timestamp delta outside the supported signed-seconds computation, malformed identity/reference, forbidden exact duplicate, or over-budget batch is a technical encoding error, not an environmental judgment.
+
+## Experimental resource budget and allocation behavior
+
+The compile-time v1 budgets are 512 entities, 2,048 observations, 2,048 relations, 192 bytes per qualified identifier, and 256 bytes per provenance/evidence reference. Exactly-at-limit collections are accepted; one over is rejected. These constants are not runtime-configurable and are not universal SynoraOEM limits. `Validate` checks top-level collection lengths before allocating its entity/duplicate maps. `Encode` completes validation before creating output slices or sorting copies. It then allocates bounded output/copies proportional to accepted input; value strings and symbolic references are preserved rather than expanded into vocabularies. Failure is atomic: callers receive an empty `EncodedBatch`, never truncation or partial encoding.

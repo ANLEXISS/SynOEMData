@@ -1,12 +1,12 @@
 # Synora Intelligence Roadmap
 
-This roadmap describes planned milestones; it is not authorization to implement them. The owner must approve I1 before I2 begins.
+This roadmap records milestone state; implementation, approval, and publication each require their separate authorization gates. I3 remains unauthorized.
 
 | Milestone | Description | Status | Prerequisites / deliverables | Tests and known blockers | Review / approval / revision |
 |---|---|---|---|---|---|
 | I1 | Cognitive architecture and research baselines | IMPLEMENTED / TESTED / EXPERIMENTAL; HUMAN APPROVED | Source audit, component proposal, task objectives, candidate comparison, isolated next-state experiment and report | Required regression commands run. Current full and targeted central runs complete episode-sequence-03; the previously reported incomplete action-result observation was not reproduced. Synthetic model result is not household evidence. | Owner approved after the I1 final-review clarification; approval applies to the experimental milestone, not production readiness. |
-| I2 | Structured State Encoder | IMPLEMENTED / TESTED / EXPERIMENTAL; REVIEW REQUIRED | Versioned observation-batch contract, Intelligence-owned encoder, explicit status/type channels, deterministic fixtures and implementation report | Full Go test suite and architecture checker pass. Categorical vocabularies, unit conversion, confidence calibration, source conflict resolution, and Core/runtime integration remain out of scope. | Implementation authorized; I2 human review and approval pending. |
-| I3 | Cognitive Dataset Engine | PLANNED / NOT AUTHORIZED | I2 contract approval; deterministic synthetic worlds, provenance, group splits, leakage controls | Needs independent labels, home/graph grouping, privacy policy, and anomaly-label validation. | Not reviewed or approved. |
+| I2 | Structured State Encoder | IMPLEMENTED / TESTED / EXPERIMENTAL; HUMAN APPROVED 2026-10-11 | Versioned observation-batch contract, Intelligence-owned encoder, explicit status/type channels, signed temporal deltas, deterministic fixtures and implementation report | I2.1 aligns translation-only responsibility and preserves future timestamps. Validation is reported in I2.1-CONTRACT-STABILIZATION.md. Output remains structured, not a complete neural tensor. | Owner approved the experimental milestone; no source commit, push, documentation publication, or I3 execution authorized. |
+| I3 | Cognitive Dataset Engine | SPECIFICATION PREPARED / IMPLEMENTATION NOT AUTHORIZED | Dataset pipeline, causal cutoff contract, leakage-safe group splits, task definitions, and 20-scenario catalog | Documents specify synthetic worlds, provenance, independent labels, home/topology grouping, delayed delivery, clock drift, missingness, conflicts, and evaluation. No engine, data, labels, or training exists. | I3 execution requires separate explicit authorization after I2 review. |
 | I4 | Shared Backbone and Specialized Heads | PLANNED / NOT AUTHORIZED | I2/I3 acceptance; compare A/B and per-task controls | Must beat simple baselines on held-out groups; quantify negative transfer, uncertainty, and resource use. No production replacement. | Not reviewed or approved. |
 | I5 | Cognitive Evaluation and Qualification | PLANNED / NOT AUTHORIZED | I4 candidates and evaluation suite | Needs calibration, abstention, unseen-home/graph, missingness, and failure-mode evidence. | Not reviewed or approved. |
 | I6 | Home Adaptation and Continual Learning | PLANNED / NOT AUTHORIZED | I5 evidence plus privacy, retention, opt-out, and rollback decisions | No home-specific training state or adaptation is implemented. | Not reviewed or approved. |
@@ -20,6 +20,10 @@ I1 was explicitly approved by the owner after the final-review clarification in 
 
 ## I2 review gate
 
-I2 implementation and validation are complete for review, not approved. Review I2-IMPLEMENTATION-REPORT.md and the updated state representation design. The encoder is an isolated Intelligence-owned package and does not alter Core runtime behavior or frozen snapshot/model contracts. I3 remains NOT AUTHORIZED until explicitly approved.
+I2 and I2.1 were approved by the owner on 2026-10-11 for the experimental milestone. The owner-decided temporal rule is documented in `ADR-STATE-ENCODER-RESPONSIBILITY.md`; event, observation, and receipt times stay distinct and age is signed. This approval does not authorize a source commit, push, documentation publication, production integration, or I3 execution. The encoder remains isolated from Core runtime behavior and frozen snapshot/model contracts.
+
+## I3 preparation boundary
+
+`I3-DATASET-ENGINE-SPECIFICATION.md` and `I3-SCENARIO-CATALOG.md` are specifications only. They define causal cutoff selection separately from State Encoder translation so future data cannot enter a prediction input merely because its source timestamp is old. I3 implementation and training remain NOT AUTHORIZED.
 
 I2 source and documentation remain subject to the repository's milestone validation and documentation synchronization workflow. Source and documentation-repository revisions are reported separately when recorded.

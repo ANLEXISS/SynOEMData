@@ -67,8 +67,12 @@ docs/intelligence/02-state-representation-design.md
 docs/intelligence/03-model-candidate-comparison.md
 docs/intelligence/04-training-objectives.md
 docs/intelligence/05-i1-experiment-results.md
+docs/intelligence/ADR-STATE-ENCODER-RESPONSIBILITY.md
 docs/intelligence/I1-REVIEW-REPORT.md
 docs/intelligence/I2-IMPLEMENTATION-REPORT.md
+docs/intelligence/I2.1-CONTRACT-STABILIZATION.md
+docs/intelligence/I3-DATASET-ENGINE-SPECIFICATION.md
+docs/intelligence/I3-SCENARIO-CATALOG.md
 docs/intelligence/ROADMAP.md
 docs/j1-data-erasure-v1.md
 docs/j2-camera-qualification.md

@@ -1,0 +1,155 @@
+{
+  "data_seed": 104729,
+  "dataset_sha256": "062d5119b74a468d8e85449b95ee70dd32d1a8301f3cbb86fea82c27941c9119",
+  "experiment": "synora-i1-next-state-mlp/v1",
+  "model": {
+    "architecture": "3-input, 6-unit tanh hidden layer, 1 sigmoid output, binary cross entropy",
+    "batch_size": 32,
+    "best_epoch": 91,
+    "best_validation_log_loss": 0.08791,
+    "l2": 0.0001,
+    "learning_rate": 0.08,
+    "max_epochs": 180,
+    "model_sha256": "bf2673e0d19b8f55f6a6db63dd263099dbfde34523608e2983fc8f822d6387e9",
+    "optimizer": "deterministic mini-batch SGD with L2; validation-loss early stopping",
+    "parameter_count": 31
+  },
+  "model_seed": 130363,
+  "qualification": "synthetic proof of concept only; not household generalization, production model, or deployment evidence",
+  "split": {
+    "home_counts": {
+      "test": 12,
+      "train": 36,
+      "validation": 12
+    },
+    "home_ids": {
+      "test": [
+        "synthetic-home-048",
+        "synthetic-home-049",
+        "synthetic-home-050",
+        "synthetic-home-051",
+        "synthetic-home-052",
+        "synthetic-home-053",
+        "synthetic-home-054",
+        "synthetic-home-055",
+        "synthetic-home-056",
+        "synthetic-home-057",
+        "synthetic-home-058",
+        "synthetic-home-059"
+      ],
+      "train": [
+        "synthetic-home-000",
+        "synthetic-home-001",
+        "synthetic-home-002",
+        "synthetic-home-003",
+        "synthetic-home-004",
+        "synthetic-home-005",
+        "synthetic-home-006",
+        "synthetic-home-007",
+        "synthetic-home-008",
+        "synthetic-home-009",
+        "synthetic-home-010",
+        "synthetic-home-011",
+        "synthetic-home-012",
+        "synthetic-home-013",
+        "synthetic-home-014",
+        "synthetic-home-015",
+        "synthetic-home-016",
+        "synthetic-home-017",
+        "synthetic-home-018",
+        "synthetic-home-019",
+        "synthetic-home-020",
+        "synthetic-home-021",
+        "synthetic-home-022",
+        "synthetic-home-023",
+        "synthetic-home-024",
+        "synthetic-home-025",
+        "synthetic-home-026",
+        "synthetic-home-027",
+        "synthetic-home-028",
+        "synthetic-home-029",
+        "synthetic-home-030",
+        "synthetic-home-031",
+        "synthetic-home-032",
+        "synthetic-home-033",
+        "synthetic-home-034",
+        "synthetic-home-035"
+      ],
+      "validation": [
+        "synthetic-home-036",
+        "synthetic-home-037",
+        "synthetic-home-038",
+        "synthetic-home-039",
+        "synthetic-home-040",
+        "synthetic-home-041",
+        "synthetic-home-042",
+        "synthetic-home-043",
+        "synthetic-home-044",
+        "synthetic-home-045",
+        "synthetic-home-046",
+        "synthetic-home-047"
+      ]
+    },
+    "method": "whole-home holdout; no home occurs in multiple splits",
+    "record_counts": {
+      "test": 1536,
+      "train": 4608,
+      "validation": 1536
+    }
+  },
+  "status": "EXPERIMENTAL",
+  "synthetic_world": {
+    "features": [
+      "current_occupancy_bit",
+      "door_open_bit",
+      "motion_bit"
+    ],
+    "home_variation": "per-home door and motion frequencies vary; transition rule is shared",
+    "label": "next_occupancy_bit",
+    "missing_data": "excluded from this first experiment; no missing value is coerced to false",
+    "transition": "occupancy toggles when door_open AND motion; independent 2% label noise"
+  },
+  "test_metrics": {
+    "accuracy_delta_vs_last_state": 0.158854,
+    "accuracy_delta_vs_majority": 0.461589,
+    "last_state_persistence": {
+      "accuracy": 0.823568,
+      "brier_score": 0.176432,
+      "confusion": {
+        "false_negative": 133,
+        "false_positive": 138,
+        "true_negative": 662,
+        "true_positive": 603
+      },
+      "count": 1536,
+      "log_loss": 4.875006,
+      "macro_f1": 0.823307
+    },
+    "learned_mlp": {
+      "accuracy": 0.982422,
+      "brier_score": 0.017314,
+      "confusion": {
+        "false_negative": 9,
+        "false_positive": 18,
+        "true_negative": 782,
+        "true_positive": 727
+      },
+      "count": 1536,
+      "log_loss": 0.089348,
+      "macro_f1": 0.982399
+    },
+    "majority_class": {
+      "accuracy": 0.520833,
+      "brier_score": 0.479167,
+      "confusion": {
+        "false_negative": 736,
+        "false_positive": 0,
+        "true_negative": 800,
+        "true_positive": 0
+      },
+      "count": 1536,
+      "log_loss": 13.239864,
+      "macro_f1": 0.342466
+    }
+  }
+}

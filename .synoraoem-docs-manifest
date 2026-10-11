@@ -62,6 +62,14 @@ docs/edge-vision-compute-split-v1.md
 docs/face-gallery-enrichment-v1.md
 docs/foundation-v1-software-contracts.md
 docs/intelligence-v1.md
+docs/intelligence/01-cognitive-architecture.md
+docs/intelligence/02-state-representation-design.md
+docs/intelligence/03-model-candidate-comparison.md
+docs/intelligence/04-training-objectives.md
+docs/intelligence/05-i1-experiment-results.md
+docs/intelligence/I1-REVIEW-REPORT.md
+docs/intelligence/I2-IMPLEMENTATION-REPORT.md
+docs/intelligence/ROADMAP.md
 docs/j1-data-erasure-v1.md
 docs/j2-camera-qualification.md
 docs/mlp-trace-v1.md
